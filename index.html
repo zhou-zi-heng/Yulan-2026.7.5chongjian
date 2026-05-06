@@ -33,17 +33,18 @@ body{display:flex;height:100vh;height:100dvh}
 .ci-a button:hover{color:var(--tx)}
 .sf{padding:10px;border-top:1px solid var(--bd);display:flex;gap:6px;flex-wrap:wrap}
 .sf button{flex:1;min-width:0;background:var(--bg3);color:var(--tx);border:1px solid var(--bd);padding:7px;border-radius:6px;cursor:pointer;font-size:12px}
-.sf button:hover{background:var(--{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.sf button:hover{background:var(--bd)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
 .mh{padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px;background:var(--bg2)}
-.mh .mb-btn{display;background:transparent;border:0;color:var(--tx);font-size:22px;cursor:pointer;padding:0 6px}
-.mh input.ti{flex:1;backgroundparent;border:0;color:var(--tx);font-size:15px;font-weight:500;min-width:0}
+.mh .mb-btn{display:none;background:transparent;border:0;color:var(--tx);font-size:22px;cursor:pointer;padding:0 6px}
+.mh input.ti{flex:1;background:transparent;border:0;color:var(--tx);font-size:15px;font-weight:500;min-width:0;outline:0}
 .mh select{background:var(--bg3);color:var(--tx);border:1px solid var(--bd);padding:5px 8px;border-radius:6px;font-size:12px;outline:0;max-width:140px}
 .mh .hb{background:var(--bg3);border:1px solid var(--bd);color:var(--tx);padding:5px 9px;border-radius:6px;cursor:pointer;font-size:13px}
 .mh .hb:hover{background:var(--bd)}
 .ma{flex:1;overflow-y:auto;padding:16px;scroll-behavior:smooth}
 .msg{display:flex;gap:10px;margin-bottom:16px;max-width:900px;margin-left:auto;margin-right:auto}
 .msg.user{flex-direction:row-reverse}
-.av{width:30px;height:30px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:15px;fl
+.av{width:30px;height:30px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
 .msg.user .av{background:var(--ac)}
 .mb{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .msg.user .mb{align-items:flex-end}
@@ -71,15 +72,16 @@ body{display:flex;height:100vh;height:100dvh}
 .mact button{background:transparent;border:0;color:var(--tx2);cursor:pointer;padding:3px 6px;font-size:12px;border-radius:4px}
 .mact button:hover{background:var(--bg3);color:var(--tx)}
 .fls{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
-.fl{background:var(--bg3);border:1px solid var(--px 8px;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer}
+.fl{background:var(--bg3);border:1px solid var(--bd);padding:4px 8px;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer}
 .fl:hover{background:var(--bd)}
 .fl.ct{border-color:var(--ac)}
 .half-ind{font-size:11px;color:var(--wn);margin-top:2px}
-.in-top:1px solid var(--bd);padding:10px 14px;background:var(--bg2)}
+.in{border-top:1px solid var(--bd);padding:10px 14px;background:var(--bg2)}
 .in-wrap{max-width:900px;margin:0 auto;position:relative}
 .in-files{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
 .in-files .fl{background:var(--bg3);font-size:11.5px}
-.in-files .fl .x{cursor:pointer;color:var(--er);font-weight:700;margin-left:3ib{display:flex;align-items:flex-end;gap:6px;background:var(--bg3);border:1px solid var(--bd);border-radius:14px;padding:6px}
+.in-files .fl .x{cursor:pointer;color:var(--er);font-weight:700;margin-left:3px}
+.ib{display:flex;align-items:flex-end;gap:6px;background:var(--bg3);border:1px solid var(--bd);border-radius:14px;padding:6px}
 .ib:focus-within{border-color:var(--ac)}
 .att-btn{background:transparent;border:0;color:var(--tx2);font-size:20px;cursor:pointer;padding:6px 8px;flex-shrink:0}
 .att-btn:hover{color:var(--tx)}
@@ -110,7 +112,7 @@ body{display:flex;height:100vh;height:100dvh}
 .fld label{display:block;font-size:13px;color:var(--tx2);margin-bottom:5px}
 .fld input,.fld select,.fld textarea{width:100%;padding:8px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;outline:0;font-family:inherit}
 .fld textarea{resize:vertical;min-height:70px}
-.fld .ck{display:flex;align-items:center;gpx;font-size:13px;color:var(--tx);margin-bottom:5px}
+.fld .ck{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--tx);margin-bottom:5px}
 .fld .rng{display:flex;align-items:center;gap:8px}
 .fld .rng input[type=range]{flex:1}
 .fld .rng span{font-size:12px;color:var(--tx2);min-width:36px;text-align:right}
@@ -121,7 +123,7 @@ body{display:flex;height:100vh;height:100dvh}
 .kb-it{display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg3);border-radius:6px;margin-bottom:4px;font-size:13px;gap:6px}
 .kb-it .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kb-it button{background:transparent;border:0;color:var(--er);cursor:pointer;font-size:15px}
-.tst{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--bd);padpx 16px;border-radius:8px;z-index:1000;font-size:13px;animation:fi .2s;max-width:90%}
+.tst{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--bd);padding:10px 16px;border-radius:8px;z-index:1000;font-size:13px;animation:fi .2s;max-width:90%}
 .tst.er{border-color:var(--er);color:var(--er)}
 .tst.ok{border-color:var(--ac)}
 @keyframes fi{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
@@ -158,7 +160,7 @@ body{display:flex;height:100vh;height:100dvh}
 <div class="main">
 <div class="mh">
 <button class="mb-btn" onclick="tgSb()">☰</button>
-<input class="ti" id="titleIn" placeholder="对话标题..." onchange="updTthis.value)">
+<input class="ti" id="titleIn" placeholder="对话标题..." onchange="updTitle(this.value)">
 <select id="mdlSel" onchange="chMdl(this.value)"></select>
 <button class="hb" onclick="oChSet()">⚙</button>
 </div>
@@ -610,7 +612,7 @@ function oSt(){
     html+='<div class="fld"><label class="ck"><input type="checkbox" id="stUP"'+(p.use_top_p?' checked':'')+'> Top P</label><div class="rng"><input type="range" id="stP" min="0" max="1" step="0.05" value="'+p.top_p+'" oninput="document.getElementById(\'stPV\').textContent=this.value"><span id="stPV">'+p.top_p+'</span></div></div>';
     html+='<div class="fld"><label class="ck"><input type="checkbox" id="stUF"'+(p.use_frequency_penalty?' checked':'')+'> Frequency Penalty</label><div class="rng"><input type="range" id="stF" min="-2" max="2" step="0.1" value="'+p.frequency_penalty+'" oninput="document.getElementById(\'stFV\').textContent=this.value"><span id="stFV">'+p.frequency_penalty+'</span></div></div>';
     body.innerHTML=html;
-    sM('st_Mo');
+    sM('stMo');
 }
 
 function swProf(i){S.activeProfileIdx=parseInt(i);save();oSt();render()}
@@ -838,3 +840,6 @@ if(!S.currentChatId||!S.chats[S.currentChatId]){
     else newChat(false);
 }
 render();
+</script>
+</body>
+</html>
