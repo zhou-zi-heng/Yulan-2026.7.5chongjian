@@ -203,7 +203,7 @@
             <ul class="cl" id="pinList"></ul>
             <div class="sl">💬 对话</div>
             <ul class="cl" id="chatList"></ul>
-            <div class="sl" id="arcLbl" style="display:none">📦档</div>
+            <div class="sl" id="arcLbl" style="display:none">📦 归档</div>
             <ul class="cl" id="arcList"></ul>
         </div>
         <div class="sb-ft"><button class="btn btn-b btn-s" onclick="openM('snap')">📦 快照迁移</button></div>
@@ -326,9 +326,9 @@ function rMD(t){
         t=t.replace(/```mermaid\s*\n([\s\S]*?)```/g,function(m,c){var i=mermaidBlocks.length;mermaidBlocks.push(c.trim());return'%%MERM_'+i+'%%'});
         var mathBlocks=[];
         var dd=DOLLAR+DOLLAR;
-        var mathRe=new RegExp(dd.replace(/\/g,′/g,&#x27;\\/g,′')+'([\\s\\S]+?)'+dd.replace(/\/g,′/g,&#x27;\\/g,′'),'g');
+        var mathRe=new RegExp(dd.replace(/\$$/g,'\\$$')+'([\\s\\S]+?)'+dd.replace(/\$$/g,'\\$$'),'g');
         t=t.replace(mathRe,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:true});return'%%MBLK_'+i+'%%'});
-        var parenMathRe=/\\\(([\s\S]+?)\\\)/g;
+        var parenMathRe=/\\$$$([\s\S]+?)\\$$$/g;
         t=t.replace(parenMathRe,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:false});return'%%MINL_'+i+'%%'});
         var html=mdit.render(t);
         if(window.DOMPurify)html=DOMPurify.sanitize(html,{ADD_TAGS:['input'],ADD_ATTR:['checked','disabled','type'],KEEP_CONTENT:true});
@@ -458,7 +458,9 @@ function edM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m
 function rgM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m.role!=='system');const r=c.messages.indexOf(ms[i]);if(r>=0){c.messages=c.messages.slice(0,r);save();renderMs();doAPI()}}
 function rsM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m.role!=='system');ms[i]._is_half=false;c.messages.push({role:'user',content:'请紧接上文继续往下写，保持文风一致。',_time:nowTime()});save();renderMs();doAPI()}
 function cpM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m.role!=='system');if(ms[i])navigator.clipboard.writeText(ms[i].content).then(()=>toast('已复制')).catch(()=>toast('复制失败','er'))}
-function cpFull(i){cpM(i)}Att(){document.getElementById('attPan').classList.toggle('show')}
+function cpFull(i){cpM(i)}
+
+function togAtt(){document.getElementById('attPan').classList.toggle('show')}
 
 async function onAtt(input){
     const files=Array.from(input.files||[]);
@@ -665,7 +667,7 @@ function rEngF(){
     html+='<div class="fr"><div class="fg"><label>模型 ID</label><input id="mdlIn" value="'+esc(p.model)+'" onchange="uEng(\'model\',this.value)"></div><div class="fg" style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="btn btn-s" onclick="fMdls()">🔄 获取</button></div></div>';
     html+='<div id="mdlBox"></div>';
     html+='<h4 style="margin:12px 0 6px;font-size:13px">🎛️ 运行时参数</h4>';
-    html+='<div class="pt"><input type="checkbox" '+(p.use_temperature?'checked':'')+' onchange="uEng(\'use_temperature\',this.checked);rEngF()"><label>🔥';
+    html+='<div class="pt"><input type="checkbox" '+(p.use_temperature?'checked':'')+' onchange="uEng(\'use_temperature\',this.checked);rEngF()"><label>🔥 Temperature</label></div>';
     if(p.use_temperature)html+='<div class="ps"><input type="range" min="0" max="2" step="0.1" value="'+p.temperature+'" oninput="this.nextElementSibling.textContent=this.value;uEng(\'temperature\',+this.value)"><span class="pv">'+p.temperature+'</span></div>';
     html+='<div class="pt"><input type="checkbox" '+(p.use_max_tokens?'checked':'')+' onchange="uEng(\'use_max_tokens\',this.checked);rEngF()"><label>📏 Max Tokens</label></div>';
     if(p.use_max_tokens)html+='<div class="ps"><input type="number" style="width:110px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text)" value="'+p.max_tokens+'" min="1" max="2000000" onchange="uEng(\'max_tokens\',+this.value)"><div class="presets"><button onclick="sMT(4096)">4K</button><button onclick="sMT(8192)">8K</button><button onclick="sMT(16384)">16K</button><button onclick="sMT(32768)">32K</button><button onclick="sMT(65536)">64K</button><button onclick="sMT(131072)">128K</button><button onclick="sMT(1048576)">1M</button><button onclick="sMT(2000000)">2M</button></div></div>';
@@ -682,7 +684,7 @@ function rEngF(){
 }
 function swEng(i){S.activeProfileIdx=i;save();rEngF();renderBdg()}
 function uEng(k,v){S.profiles[S.activeProfileIdx][k]=v;save();renderBdg()}
-function addEng(){S.profiles.push({...DP,name:'引擎'+(S.profiles.length+1)});S.activeProfileIdx=S.profiles.length-1;save();r}
+function addEng(){S.profiles.push({...DP,name:'引擎'+(S.profiles.length+1)});S.activeProfileIdx=S.profiles.length-1;save();rEngF()}
 function dEng(){if(S.profiles.length<=1||!confirm('确定删除？'))return;S.profiles.splice(S.activeProfileIdx,1);S.activeProfileIdx=0;save();rEngF();renderBdg()}
 function sMT(v){uEng('max_tokens',v);rEngF()}
 function saveEng(){save();toast('✅ 配置已保存')}
@@ -716,7 +718,7 @@ function eDoc(){const c=S.chats[S.currentChatId];const f=document.getElementById
 function cpExp(){const ta=document.getElementById('expTA');ta.select();navigator.clipboard.writeText(ta.value).then(()=>toast('已复制')).catch(()=>{document.execCommand('copy');toast('已复制')})}
 function bExpH(ms,title,model){const d=new Date().toLocaleString('zh-CN');const mh=ms.map(m=>'<div style="display:flex;gap:10px;margin-bottom:20px;'+(m.role==='user'?'flex-direction:row-reverse':'')+'"><div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;background:'+(m.role==='user'?'#e3f2fd':'#e8f5e9')+'">'+(m.role==='user'?'🙋‍♂️':'🤖')+'</div><div style="max-width:80%;padding:12px 16px;border-radius:14px;line-height:1.7;font-size:14px;white-space:pre-wrap;background:'+(m.role==='user'?'#d1e7ff':'#fff')+';box-shadow:0 1px 2px rgba(0,0,0,.05)">'+esc(m.content).replace(/\n/g,'<br>')+'</div></div>').join('');return'<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title></head><body style="font-family:-apple-system,sans-serif;background:#f0f2f5;margin:0"><div style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:20px 24px"><h1 style="font-size:20px;margin:0">💬 '+esc(title)+'</h1><div style="font-size:11px;opacity:.75;margin-top:4px">'+d+' | 🧠 '+esc(model)+'</div></div><div style="max-width:900px;margin:0 auto;padding:20px 16px">'+mh+'</div></body></html>'}
 
-function eSnap(){dl(JSON.stringify(S,null,2),'ZenMux_'+new Date().toISOString().slice(0,10)+'.json','application/json');to照已导出')}
+function eSnap(){dl(JSON.stringify(S,null,2),'ZenMux_'+new Date().toISOString().slice(0,10)+'.json','application/json');toast('快照已导出')}
 function iSnap(input){
     const f=input.files[0];if(!f)return;
     const r=new FileReader();
@@ -751,7 +753,7 @@ function closeM(n){document.getElementById('mo-'+n).classList.remove('show')}
 function hKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}
 function aRsz(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,130)+'px'}
 function toast(msg,type){if(!type)type='ok';const c=document.getElementById('tc');const t=document.createElement('div');t.className='tt '+type;t.textContent=msg;c.appendChild(t);setTimeout(()=>t.remove(),2500)}
-function dl(c,n,m){const b=new Blob([c],{type:m+';charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a.download=n;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)}
+function dl(c,n,m){const b=new Blob([c],{type:m+';charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=n;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)}
 function esc(t){if(!t)return'';const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 function cntW(t){if(!t)return 0;return(t.match(/[\u4e00-\u9fff]/g)||[]).length+(t.match(/[a-zA-Z]+/g)||[]).length}
 
@@ -767,7 +769,7 @@ document.querySelectorAll('.mo').forEach(o=>o.addEventListener('click',function(
 document.addEventListener('click',function(e){if(!e.target.closest('.att-btn')&&!e.target.closest('.att-pan'))document.getElementById('attPan').classList.remove('show')});
 
 load();render();
-if(/iPad|iPhone|iPod/.test(navigator.userAgent)){const lr=localStorage.getItem('zm_ios');if(!lr||Date.now()-+lr>3*400000){setTimeout(()=>toast('💡 iOS建议定期导出快照'),1500);localStorage.setItem('zm_ios',Date.now()+'')}}
+if(/iPad|iPhone|iPod/.test(navigator.userAgent)){const lr=localStorage.getItem('zm_ios');if(!lr||Date.now()-+lr>3*86400000){setTimeout(()=>toast('💡 iOS建议定期导出快照'),1500);localStorage.setItem('zm_ios',Date.now()+'')}}
 </script>
 </body>
 </html>
