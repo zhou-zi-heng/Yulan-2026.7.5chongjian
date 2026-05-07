@@ -323,7 +323,8 @@ function rMD(t){
         if(!t)return'';
         var mathBlocks=[];
         t=t.replace(/\\([\s\S]*?)\\/g,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:true});return'%%MBLK_'+i+'%%'});
-        t=t.replace(/\$$([^\n$$]+?)\$/g,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:false});return'%%MINL_'+i+'%%'});
+        t=t.replace(/\([\n([^\n([\n]+?)\$/g,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:false});return'%%MINL_'+i+'%%'});
+
         var mermaidBlocks=[];
         t=t.replace(/```mermaid\s*\n([\s\S]*?)```/g,function(m,c){var i=mermaidBlocks.length;mermaidBlocks.push(c.trim());return'%%MERM_'+i+'%%'});
         var html=mdit.render(t);
