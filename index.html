@@ -17,8 +17,7 @@
     <script src="https://cdn.jsdelivr.net/npm/markdown-it-footnote@4.0.0/dist/markdown-it-footnote.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/cjs/index.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/markdown-it-emoji@3.0.0/dist/markdown-it-emoji.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         :root{--bg:#f7f8fa;--card:#fff;--text:#1f2937;--text2:#6b7280;--border:#e5e7eb;--pri:#667eea;--pri-h:#5a6fd6;--pri-l:rgba(102,126,234,0.08);--ok:#10b981;--err:#ef4444;--sb-w:260px;--hdr:50px;--code-bg:#f6f8fa}
@@ -70,8 +69,9 @@
         .msg.user .av{background:#e3f2fd}
         [data-theme="dark"] .msg.assistant .av{background:#1b3329}
         [data-theme="dark"] .msg.user .av{background:#1b2733}
-        .mb{min-width:40px;max-width:min(85%,900px)}
+        .m{min-width:40px;max-width:min(85%,900px)}
         .bub{padding:10px 14px;border-radius:14px;line-height:1.75;font-size:14px;word-break:break-word;position:relative}
+        .bub.streaming{white-space:pre-wrap;font-family:inherit}
         .msg.assistant .bub{background:var(--card);border-top-left-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
         .msg.user .bub{background:#d1e7ff;border-top-right-radius:4px;white-space:pre-wrap}
         [data-theme="dark"] .msg.user .bub{background:#1e3a5f}
@@ -91,7 +91,7 @@
         .msg.assistant .bub table{border-collapse:collapse;margin:8px 0;font-size:13px;display:block;overflow-x:auto;max-width:100%}
         .msg.assistant .bub th,.msg.assistant .bub td{border:1px solid var(--border);padding:6px 10px;text-align:left}
         .msg.assistant .bub th{background:var(--pri-l);font-weight:600}
-        .msg.assistant .bub .task-list-item{list-style:none;margin-left:-1.5em}
+        .msg.assistant .bub .task-list-item{listin-left:-1.5em}
         .msg.assistant .bub .task-list-item input{margin-right:6px}
         .msg.assistant .bub hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         .msg.assistant .bub sup,.msg.assistant .bub sub{font-size:0.75em}
@@ -121,7 +121,7 @@
         .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text2);gap:8px}
         .empty .ico{font-size:42px}
         .empty p{font-size:14px}
-        .inp-area{border-top:1px solid var(--border);padding:10px 20px;padding-bottom:max(10px,env(safeom));background:var(--card);flex-shrink:0;transition:background .3s}
+        .inp-area{border-top:1px solid var(--border);padding:10px 20px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:var(--card);flex-shrink:0;transition:background .3s}
         @media(max-width:768px){.inp-area{padding:8px}}
         .inp-wrap{display:flex;gap:8px;align-items:flex-end}
         .att-btn{width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--card);font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text)}
@@ -139,13 +139,13 @@
         .att-item{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:11px}
         .att-item .ai-nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
         .att-item .ai-sz{color:var(--text2);font-size:10px;flex-shrink:0}
-        .att-item .ai-rm{background:none;border:none;color:var(--err);cursor:pointer;font-size:14px;padding:0 2px;flex-shrink:0}
+        .att-item .ai-rm{background:none;border:none;color:var(--err);cursor:pointer;fontpx;padding:0 2px;flex-shrink:0}
         .att-item .ai-rm:hover{opacity:.7}
         .att-head{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11px;color:var(--text2)}
         .att-head button{background:none;border:none;color:var(--err);cursor:pointer;font-size:11px;padding:2px 5px}
         .att-head button:hover{text-decoration:underline}
         .btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:7px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;cursor:pointer;transition:all .12s;white-space:nowrap}
-        .btn:hoverpri);color:var(--pri)}
+        .btn:hover{border-color:var(--pri);color:var(--pri)}
         .btn-p{background:var(--pri);color:#fff;border-color:var(--pri)}
         .btn-p:hover{background:var(--pri-h)}
         .btn-d{color:var(--err);border-color:var(--err)}
@@ -203,7 +203,7 @@
             <ul class="cl" id="pinList"></ul>
             <div class="sl">💬 对话</div>
             <ul class="cl" id="chatList"></ul>
-            <div class="sl" id="arcLbl" style="display:none">📦 归档</div>
+            <div class="sl" id="arcLbl" style="display:none">📦档</div>
             <ul class="cl" id="arcList"></ul>
         </div>
         <div class="sb-ft"><button class="btn btn-b btn-s" onclick="openM('snap')">📦 快照迁移</button></div>
@@ -249,11 +249,13 @@
 
 <div class="lightbox" id="lightbox" onclick="this.classList.remove('show')"><img id="lbImg" src=""></div>
 <div class="tc" id="tc"></div>
+
 <script>
 const SK='zenmux_v3',RW=50;
+const DOLLAR=String.fromCharCode(36);
 if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-var mdit=window.markdownit({html:false,breaks:true,linkify:true,typographer:true,highlight:function(code,lang){
+var mdit=window.markdownit({html:false,breaks:true,linkify:false,typographer:false,highlight:function(code,lang){
     try{if(lang&&hljs.getLanguage(lang))return hljs.highlight(code,{language:lang}).value;return hljs.highlightAuto(code).value}catch(e){return code}
 }});
 if(window.markdownitSub)mdit.use(window.markdownitSub);
@@ -262,7 +264,6 @@ if(window.markdownitMark)mdit.use(window.markdownitMark);
 if(window.markdownitFootnote)mdit.use(window.markdownitFootnote);
 if(window.markdownitTaskLists)mdit.use(window.markdownitTaskLists);
 if(window.markdownitEmoji)mdit.use(window.markdownitEmoji);
-
 if(window.mermaid)mermaid.initialize({startOnLoad:false,theme:'default'});
 
 const DP={name:'默认引擎',base_url:'',api_key:'',model:'gpt-4o',use_temperature:true,temperature:0.8,use_max_tokens:true,max_tokens:4096,use_top_p:false,top_p:1.0,use_frequency_penalty:false,frequency_penalty:0.0};
@@ -321,14 +322,16 @@ var mermaidId=0;
 function rMD(t){
     try{
         if(!t)return'';
-        var mathBlocks=[];
-        t=t.replace(/\\([\s\S]*?)\\/g,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:true});return'%%MBLK_'+i+'%%'});
-        t=t.replace(/\([\n([^\n([\n]+?)\$/g,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:false});return'%%MINL_'+i+'%%'});
-
         var mermaidBlocks=[];
         t=t.replace(/```mermaid\s*\n([\s\S]*?)```/g,function(m,c){var i=mermaidBlocks.length;mermaidBlocks.push(c.trim());return'%%MERM_'+i+'%%'});
+        var mathBlocks=[];
+        var dd=DOLLAR+DOLLAR;
+        var mathRe=new RegExp(dd.replace(/\/g,′/g,&#x27;\\/g,′')+'([\\s\\S]+?)'+dd.replace(/\/g,′/g,&#x27;\\/g,′'),'g');
+        t=t.replace(mathRe,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:true});return'%%MBLK_'+i+'%%'});
+        var parenMathRe=/\\\(([\s\S]+?)\\\)/g;
+        t=t.replace(parenMathRe,function(m,f){var i=mathBlocks.length;mathBlocks.push({f:f.trim(),d:false});return'%%MINL_'+i+'%%'});
         var html=mdit.render(t);
-        if(window.DOMPurify)html=DOMPurify.sanitize(html,{ADD_TAGS:['input'],ADD_ATTR:['checked','disabled','type']});
+        if(window.DOMPurify)html=DOMPurify.sanitize(html,{ADD_TAGS:['input'],ADD_ATTR:['checked','disabled','type'],KEEP_CONTENT:true});
         html=html.replace(/%%MBLK_(\d+)%%/g,function(m,i){
             var mb=mathBlocks[parseInt(i)];
             try{return'<div class="katex-display">'+katex.renderToString(mb.f,{displayMode:true,throwOnError:false})+'</div>'}
@@ -370,7 +373,8 @@ function rMD(t){
         html=html.replace(/<a /g,'<a target="_blank" rel="noopener" ');
         return html;
     }catch(e){
-        return'<p style="white-space:pre-wrap;margin:0">'+esc(t)+'</p>';
+        console.error('rMD error:',e);
+        return'<pre style="white-space:pre-wrap;margin:0">'+esc(t)+'</pre>';
     }
 }
 
@@ -402,7 +406,7 @@ function openLB(src){
 }
 
 function render(){renderSB();renderMs();renderBdg();updPin()}
-function renderBdg(){const p=S.profiles[S.activeProfileIdx]||S.profiles[0];document.getElementById('badge').innerHTML=`🟢 <strong>esc(p.name)</strong>∣🧠{esc(p.name)}</strong> | 🧠esc(p.name)</strong>∣🧠{esc(p.model)}`}
+function renderBdg(){const p=S.profiles[S.activeProfileIdx]||S.profiles[0];document.getElementById('badge').innerHTML='🟢 <strong>'+esc(p.name)+'</strong> | 🧠 '+esc(p.model)}
 function updPin(){const c=S.chats[S.currentChatId];document.getElementById('pinBtn').style.opacity=c&&c.is_pinned?'1':'0.5'}
 
 function renderSB(){
@@ -415,9 +419,9 @@ function renderSB(){
     document.getElementById('pinList').innerHTML=pin.map(([id,c])=>ciH(id,c)).join('');
     document.getElementById('chatList').innerHTML=nor.map(([id,c])=>ciH(id,c)).join('');
     document.getElementById('arcLbl').style.display=arc.length?'':'none';
-    document.getElementById('arcList').innerHTML=arc.map(([id,c])=>`<li class="ci" style="opacity:.6"><span class="ct">📦 esc(c.title)</span><divclass=&quot;ia&quot;style=&quot;display:flex&quot;><buttononclick=&quot;event.stopPropagation();unarc(′{esc(c.title)}</span><div class=&quot;ia&quot; style=&quot;display:flex&quot;><button onclick=&quot;event.stopPropagation();unarc(&#x27;esc(c.title)</span><divclass=&quot;ia&quot;style=&quot;display:flex&quot;><buttononclick=&quot;event.stopPropagation();unarc(′{id}')">♻️</button><button onclick="event.stopPropagation();delC('${id}')">×</button></div></li>`).join('');
+    document.getElementById('arcList').innerHTML=arc.map(([id,c])=>'<li class="ci" style="opacity:.6"><span class="ct">📦 '+esc(c.title)+'</span><div class="ia" style="display:flex"><button onclick="event.stopPropagation();unarc(\''+id+'\')">♻️</button><button onclick="event.stopPropagation();delC(\''+id+'\')">×</button></div></li>').join('');
 }
-function ciH(id,c){return`<li class="ci id===S.currentChatId?′act′:′′&quot;onclick=&quot;swC(′{id===S.currentChatId?&#x27;act&#x27;:&#x27;&#x27;}&quot; onclick=&quot;swC(&#x27;id===S.currentChatId?′act′:′′&quot;onclick=&quot;swC(′{id}')">c.ispinned?′<spanstyle=&quot;font−size:10px&quot;>📌</span>′:′′<spanclass=&quot;ct&quot;>{c.is_pinned?&#x27;<span style=&quot;font-size:10px&quot;>📌</span>&#x27;:&#x27;&#x27;}<span class=&quot;ct&quot;>c.isp​inned?′<spanstyle=&quot;font−size:10px&quot;>📌</span>′:′′<spanclass=&quot;ct&quot;>{esc(c.title)}</span><div class="ia"><button onclick="event.stopPropagation();delC('${id}')">×</button></div></li>`}
+function ciH(id,c){return'<li class="ci '+(id===S.currentChatId?'act':'')+'" onclick="swC(\''+id+'\')">'+(c.is_pinned?'<span style="font-size:10px">📌</span>':'')+'<span class="ct">'+esc(c.title)+'</span><div class="ia"><button onclick="event.stopPropagation();delC(\''+id+'\')">×</button></div></li>'}
 
 function renderMs(){
     const a=document.getElementById('msgsArea');const c=S.chats[S.currentChatId];if(!c)return;
@@ -426,21 +430,21 @@ function renderMs(){
     if(!ms.length){a.innerHTML='<div class="empty"><div class="ico">🐙</div><p>开始新的对话吧</p></div>';return}
     const tot=ms.length,st=Math.max(0,tot-RW-rOff),vis=ms.slice(st);
     let h='';
-    if(st>0)h+=`<div class="lm"><button onclick="rOff+=RW;renderMs()&quot;>📜加载更早(剩{RW};renderMs()&quot;>📜 加载更早 (剩RW;renderMs()&quot;>📜加载更早(剩{st}条)</button></div>`;
+    if(st>0)h+='<div class="lm"><button onclick="rOff+='+RW+';renderMs()">📜 加载更早 (剩'+st+'条)</button></div>';
     vis.forEach((msg,vi)=>{
         const ri=st+vi,isU=msg.role==='user',wc=cntW(msg.content);
         const tk=Math.round(wc*1.5);
         const time=msg._time?'<span class="msg-time">'+msg._time+'</span>':'';
-        let fh='';if(msg.files&&msg.files.length)fh='<div class="mf">'+msg.files.map(f=>`<span class="fb">f.continuous?′🔄′:′📎′{f.continuous?&#x27;🔄&#x27;:&#x27;📎&#x27;}f.continuous?′🔄′:′📎′{esc(f.filename)}</span>`).join('')+'</div>';
+        let fh='';if(msg.files&&msg.files.length)fh='<div class="mf">'+msg.files.map(f=>'<span class="fb">'+(f.continuous?'🔄':'📎')+' '+esc(f.filename)+'</span>').join('')+'</div>';
         const bub=isU?esc(msg.content):rMD(msg.content);
-        h+=`<div class="msg msg.role&quot;><divclass=&quot;av&quot;>{msg.role}&quot;><div class=&quot;av&quot;>msg.role&quot;><divclass=&quot;av&quot;>{isU?'🙋‍♂️':'🤖'}</div><div class="mb">fh<divclass=&quot;bub&quot;>{fh}<div class=&quot;bub&quot;>fh<divclass=&quot;bub&quot;>{bub}</div><div class="mm">time<span>{time}<span>time<span>{wc}字 ≈tktk</span><buttononclick=&quot;cpM({tk}tk</span><button onclick=&quot;cpM(tktk</span><buttononclick=&quot;cpM({ri})">📋</button>{isU?`<button onclick=&quot;edM({ri})">✏️</button>`:`<button onclick="rgM(ri)&quot;>🔄</button><buttononclick=&quot;cpFull({ri})&quot;>🔄</button><button onclick=&quot;cpFull(ri)&quot;>🔄</button><buttononclick=&quot;cpFull({ri})">📋全文</button>`}{!isU&&msg._is_half?`<button onclick=&quot;rsM({ri})">▶️</button>`:''}<button onclick="dlM(${ri})">🗑️</button></div></div></div>`;
+        h+='<div class="msg '+msg.role+'"><div class="av">'+(isU?'🙋‍♂️':'🤖')+'</div><div class="mb">'+fh+'<div class="bub">'+bub+'</div><div class="mm">'+time+'<span>'+wc+'字 ≈'+tk+'tk</span><button onclick="cpM('+ri+')">📋</button>'+(isU?'<button onclick="edM('+ri+')">✏️</button>':'<button onclick="rgM('+ri+')">🔄</button><button onclick="cpFull('+ri+')">📋全文</button>')+(!isU&&msg._is_half?'<button onclick="rsM('+ri+')">▶️</button>':'')+'<button onclick="dlM('+ri+')">🗑️</button></div></div></div>';
     });
     a.innerHTML=h;
     a.scrollTop=a.scrollHeight;
     if(window.mermaid){try{mermaid.run({querySelector:'.mermaid'})}catch(e){}}
 }
 
-function newChat(r=true){const id=gId();S.chats[id]={title:'新对话',messages:[],session_knowledge:[],system_prompt:'',is_pinned:false,is_archived:false};S.currentChatId=id;rOff=0;save();if(r){render();closeSB()}}
+function newChat(r){if(r===undefined)r=true;const id=gId();S.chats[id]={title:'新对话',messages:[],session_knowledge:[],system_prompt:'',is_pinned:false,is_archived:false};S.currentChatId=id;rOff=0;save();if(r){render();closeSB()}}
 function swC(id){S.currentChatId=id;rOff=0;save();render();closeSB()}
 function delC(id){if(!confirm('删除此对话？'))return;delete S.chats[id];if(S.currentChatId===id){const k=Object.keys(S.chats);S.currentChatId=k[0]||null;if(!S.currentChatId)newChat(false)}save();render()}
 function clrC(){if(!confirm('清空所有消息？'))return;const c=S.chats[S.currentChatId];if(c){c.messages=[];rOff=0;save();renderMs()}}
@@ -454,9 +458,7 @@ function edM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m
 function rgM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m.role!=='system');const r=c.messages.indexOf(ms[i]);if(r>=0){c.messages=c.messages.slice(0,r);save();renderMs();doAPI()}}
 function rsM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m.role!=='system');ms[i]._is_half=false;c.messages.push({role:'user',content:'请紧接上文继续往下写，保持文风一致。',_time:nowTime()});save();renderMs();doAPI()}
 function cpM(i){const c=S.chats[S.currentChatId];const ms=c.messages.filter(m=>m.role!=='system');if(ms[i])navigator.clipboard.writeText(ms[i].content).then(()=>toast('已复制')).catch(()=>toast('复制失败','er'))}
-function cpFull(i){cpM(i)}
-
-function togAtt(){document.getElementById('attPan').classList.toggle('show')}
+function cpFull(i){cpM(i)}Att(){document.getElementById('attPan').classList.toggle('show')}
 
 async function onAtt(input){
     const files=Array.from(input.files||[]);
@@ -465,10 +467,10 @@ async function onAtt(input){
     let okCount=0,failList=[];
     for(let i=0;i<files.length;i++){
         const f=files[i];
-        if(files.length>1)toast(`解析中 i+1/{i+1}/i+1/{files.length}: ${f.name}`);
+        if(files.length>1)toast('解析中 '+(i+1)+'/'+files.length+': '+f.name);
         try{
             const content=await parseF(f);
-            pFiles.push({filename:f.name,content,continuous:cont});
+            pFiles.push({filename:f.name,content:content,continuous:cont});
             okCount++;
         }catch(e){
             failList.push(f.name);
@@ -477,8 +479,8 @@ async function onAtt(input){
     }
     input.value='';
     renderAttList();
-    if(failList.length)toast(`✅ 成功 okCount个，❌失败：{okCount} 个，❌ 失败：okCount个，❌失败：{failList.join(', ')}`,'er');
-    else toast(`✅ 已添加 ${okCount} 个附件`);
+    if(failList.length)toast('✅ 成功 '+okCount+' 个，❌ 失败：'+failList.join(', '),'er');
+    else toast('✅ 已添加 '+okCount+' 个附件');
 }
 
 function renderAttList(){
@@ -486,38 +488,19 @@ function renderAttList(){
     const list=document.getElementById('attList');
     const count=document.getElementById('attCount');
     const btn=document.getElementById('attBtn');
-    if(!pFiles.length){
-        box.style.display='none';
-        btn.classList.remove('has');
-        return;
-    }
+    if(!pFiles.length){box.style.display='none';btn.classList.remove('has');return}
     box.style.display='block';
     btn.classList.add('has');
-    count.textContent=`已选 ${pFiles.length} 个文件`;
+    count.textContent='已选 '+pFiles.length+' 个文件';
     list.innerHTML=pFiles.map((f,i)=>{
         const isImg=f.content&&f.content.startsWith('data:image');
         const sz=isImg?'图片':cntW(f.content)+'字';
-        return `<div class="att-item"><span>isImg?′🖼®′:′📄′</span><spanclass=&quot;ai−nm&quot;title=&quot;{isImg?&#x27;🖼️&#x27;:&#x27;📄&#x27;}</span><span class=&quot;ai-nm&quot; title=&quot;isImg?′🖼R◯′:′📄′</span><spanclass=&quot;ai−nm&quot;title=&quot;{esc(f.filename)}">esc(f.filename)</span><spanclass=&quot;ai−sz&quot;>{esc(f.filename)}</span><span class=&quot;ai-sz&quot;>esc(f.filename)</span><spanclass=&quot;ai−sz&quot;>{sz}</span><button class="ai-rm" onclick="rmAtt(${i})" title="移除">×</button></div>`;
+        return '<div class="att-item"><span>'+(isImg?'🖼️':'📄')+'</span><span class="ai-nm" title="'+esc(f.filename)+'">'+esc(f.filename)+'</span><span class="ai-sz">'+sz+'</span><button class="ai-rm" onclick="rmAtt('+i+')" title="移除">×</button></div>';
     }).join('');
 }
-
-function rmAtt(i){
-    pFiles.splice(i,1);
-    renderAttList();
-}
-
-function updAttCont(){
-    const cont=document.getElementById('attCont').checked;
-    pFiles.forEach(f=>f.continuous=cont);
-    renderAttList();
-}
-
-function clrAtt(){
-    pFiles=[];
-    document.getElementById('attIn').value='';
-    document.getElementById('attCont').checked=false;
-    renderAttList();
-}
+function rmAtt(i){pFiles.splice(i,1);renderAttList()}
+function updAttCont(){const cont=document.getElementById('attCont').checked;pFiles.forEach(f=>f.continuous=cont);renderAttList()}
+function clrAtt(){pFiles=[];document.getElementById('attIn').value='';document.getElementById('attCont').checked=false;renderAttList()}
 
 function updSP(v){const c=S.chats[S.currentChatId];if(c){c.system_prompt=v;save()}}
 
@@ -529,14 +512,11 @@ async function addKB(input){
     let okCount=0,skipList=[],failList=[];
     for(let i=0;i<files.length;i++){
         const f=files[i];
-        if(c.session_knowledge.some(k=>k.filename===f.name)){
-            skipList.push(f.name);
-            continue;
-        }
-        if(files.length>1)toast(`解析中 i+1/{i+1}/i+1/{files.length}: ${f.name}`);
+        if(c.session_knowledge.some(k=>k.filename===f.name)){skipList.push(f.name);continue}
+        if(files.length>1)toast('解析中 '+(i+1)+'/'+files.length+': '+f.name);
         try{
             const content=await parseF(f);
-            c.session_knowledge.push({filename:f.name,content});
+            c.session_knowledge.push({filename:f.name,content:content});
             okCount++;
         }catch(e){
             failList.push(f.name);
@@ -545,14 +525,13 @@ async function addKB(input){
     }
     save();rKB();
     input.value='';
-    let msg=`✅ 新增 ${okCount} 个`;
-    if(skipList.length)msg+=`，⏭️ 跳过重复 ${skipList.length} 个`;
-    if(failList.length)msg+=`，❌ 失败 ${failList.length} 个`;
+    let msg='✅ 新增 '+okCount+' 个';
+    if(skipList.length)msg+='，⏭️ 跳过重复 '+skipList.length+' 个';
+    if(failList.length)msg+='，❌ 失败 '+failList.length+' 个';
     toast(msg,failList.length?'er':'ok');
 }
-
 function rmKB(i){const c=S.chats[S.currentChatId];if(c&&c.session_knowledge){c.session_knowledge.splice(i,1);save();rKB()}}
-function rKB(){const c=S.chats[S.currentChatId];const el=document.getElementById('kbList');if(!el||!c)return;if(!c.session_knowledge||!c.session_knowledge.length){el.innerHTML='<span style="font-size:11px;color:var(--text2)">暂无</span>';return}el.innerHTML=c.session_knowledge.map((k,i)=>{const isImg=k.content&&k.content.startsWith('data:image');return `<div style="display:flex;align-items:center;justpadding:4px 0"><span style="font-size:11px">isImg?′🖼®′:′📄′{isImg?&#x27;🖼️&#x27;:&#x27;📄&#x27;}isImg?′🖼R◯′:′📄′{esc(k.filename)} (isImg?′图片′:cntW(k.content)+′字′)</span><buttonclass=&quot;btnbtn−sbtn−d&quot;onclick=&quot;rmKB({isImg?&#x27;图片&#x27;:cntW(k.content)+&#x27;字&#x27;})</span><button class=&quot;btn btn-s btn-d&quot; onclick=&quot;rmKB(isImg?′图片′:cntW(k.content)+′字′)</span><buttonclass=&quot;btnbtn−sbtn−d&quot;onclick=&quot;rmKB({i})">×</button></div>`}).join('')}
+function rKB(){const c=S.chats[S.currentChatId];const el=document.getElementById('kbList');if(!el||!c)return;if(!c.session_knowledge||!c.session_knowledge.length){el.innerHTML='<span style="font-size:11px;color:var(--text2)">暂无</span>';return}el.innerHTML=c.session_knowledge.map((k,i)=>{const isImg=k.content&&k.content.startsWith('data:image');return '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0"><span style="font-size:11px">'+(isImg?'🖼️':'📄')+' '+esc(k.filename)+' ('+(isImg?'图片':cntW(k.content)+'字')+')</span><button class="btn btn-s btn-d" onclick="rmKB('+i+')">×</button></div>'}).join('')}
 function updCSUI(){const c=S.chats[S.currentChatId];if(!c)return;document.getElementById('spIn').value=c.system_prompt||'';rKB()}
 
 function nowTime(){var d=new Date();return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)}
@@ -577,7 +556,7 @@ async function doAPI(){
     if(c.system_prompt&&c.system_prompt.trim())apiMsgs.push({role:'system',content:c.system_prompt.trim()});
     if(c.session_knowledge&&c.session_knowledge.length){
         const txtKb=c.session_knowledge.filter(k=>!(k.content&&k.content.startsWith('data:image')));
-        if(txtKb.length){const kb=txtKb.map(k=>`--- k.filename−−−\n{k.filename} ---\nk.filename−−−\n{k.content}`).join('\n\n');apiMsgs.push({role:'system',content:'【全局参考】：\n'+kb})}
+        if(txtKb.length){const kb=txtKb.map(k=>'--- '+k.filename+' ---\n'+k.content).join('\n\n');apiMsgs.push({role:'system',content:'【全局参考】：\n'+kb})}
     }
     c.messages.forEach((m,i)=>{
         if(m.role==='system')return;
@@ -589,7 +568,7 @@ async function doAPI(){
                 if(f.content&&f.content.startsWith('data:image')){imgFiles.push(f)}
                 else{txtFiles.push(f)}
             });
-            if(txtFiles.length){const ft=txtFiles.map(f=>`--- f.filename−−−\n{f.filename} ---\nf.filename−−−\n{f.content}`).join('\n');ct='【附件】\n'+ft+'\n\n【指令】\n'+ct}
+            if(txtFiles.length){const ft=txtFiles.map(f=>'--- '+f.filename+' ---\n'+f.content).join('\n');ct='【附件】\n'+ft+'\n\n【指令】\n'+ct}
         }
         if(imgFiles.length){
             const parts=[{type:'text',text:ct}];
@@ -608,53 +587,102 @@ async function doAPI(){
 
     stm=true;const btn=document.getElementById('sendBtn');btn.innerHTML='⏹';btn.className='send stop';btn.onclick=stopG;
     const area=document.getElementById('msgsArea');
+    if(area.querySelector('.empty'))area.innerHTML='';
     const div=document.createElement('div');div.className='msg assistant';
-    div.innerHTML='<div class="av">🤖</div><div class="mb"><div class="bub">思考中...</div></div>';
+    div.innerHTML='<div class="av">🤖</div><div class="mb"><div class="bub streaming">思考中...</div></div>';
     area.appendChild(div);area.scrollTop=area.scrollHeight;
+    const bub=div.querySelector('.bub');
 
-    let full='',stopped=false;
+    let full='',stopped=false,buffer='';
     abC=new AbortController();
 
     try{
         const resp=await apiF('chat/completions',{method:'POST',body:JSON.stringify(params),signal:abC.signal});
         if(!resp.ok)throw new Error('HTTP '+resp.status+': '+(await resp.text()).slice(0,200));
-        const reader=resp.body.getReader();const dec=new TextDecoder();const bub=div.querySelector('.bub');
-        while(true){const{done,value}=await reader.read();if(done)break;const chunk=dec.decode(value,{stream:true});for(const line of chunk.split('\n')){if(!line.startsWith('data: '))continue;const d=line.slice(6).trim();if(d==='[DONE]')break;try{const delta=JSON.parse(d).choices?.[0]?.delta?.content;if(delta){full+=delta;bub.innerHTML=rMD(full)+'<span style="opacity:.4">▌</span>';area.scrollTop=area.scrollHeight}}catch(e){}}}
-    }catch(e){if(e.name==='AbortError')stopped=true;else{toast('失败: '+e.message,'er');if(!full){div.remove();rstBtn();return}stopped=true}}
+        const reader=resp.body.getReader();
+        const dec=new TextDecoder('utf-8');
+        let firstChunk=true;
+        while(true){
+            const{done,value}=await reader.read();
+            if(done){buffer+=dec.decode();break}
+            buffer+=dec.decode(value,{stream:true});
+            const lines=buffer.split('\n');
+            buffer=lines.pop();
+            for(const line of lines){
+                const trimmed=line.trim();
+                if(!trimmed||!trimmed.startsWith('data:'))continue;
+                const d=trimmed.slice(5).trim();
+                if(d==='[DONE]')continue;
+                try{
+                    const obj=JSON.parse(d);
+                    const delta=obj.choices&&obj.choices[0]&&obj.choices[0].delta&&obj.choices[0].delta.content;
+                    if(delta){
+                        if(firstChunk){bub.textContent='';firstChunk=false}
+                        full+=delta;
+                        bub.textContent=full;
+                        area.scrollTop=area.scrollHeight;
+                    }
+                }catch(e){}
+            }
+        }
+        if(buffer.trim()){
+            const trimmed=buffer.trim();
+            if(trimmed.startsWith('data:')){
+                const d=trimmed.slice(5).trim();
+                if(d&&d!=='[DONE]'){
+                    try{
+                        const obj=JSON.parse(d);
+                        const delta=obj.choices&&obj.choices[0]&&obj.choices[0].delta&&obj.choices[0].delta.content;
+                        if(delta){full+=delta;bub.textContent=full}
+                    }catch(e){}
+                }
+            }
+        }
+    }catch(e){
+        if(e.name==='AbortError')stopped=true;
+        else{toast('失败: '+e.message,'er');if(!full){div.remove();rstBtn();return}stopped=true}
+    }
 
-    if(full){c.messages.push({role:'assistant',content:full,_is_half:stopped,_time:nowTime()});save()}
+    if(full){
+        bub.classList.remove('streaming');
+        bub.innerHTML=rMD(full);
+        if(window.mermaid){try{mermaid.run({querySelector:'.mermaid'})}catch(e){}}
+        c.messages.push({role:'assistant',content:full,_is_half:stopped,_time:nowTime()});
+        save();
+    }
     rstBtn();renderMs();
 }
 function stopG(){if(abC){abC.abort();abC=null}}
 function rstBtn(){stm=false;const b=document.getElementById('sendBtn');b.innerHTML='➤';b.className='send';b.onclick=send}
 
 function rEngF(){
-    document.getElementById('engTabs').innerHTML=S.profiles.map((p,i)=>`<button class="tab i===S.activeProfileIdx?′act′:′′&quot;onclick=&quot;swEng({i===S.activeProfileIdx?&#x27;act&#x27;:&#x27;&#x27;}&quot; onclick=&quot;swEng(i===S.activeProfileIdx?′act′:′′&quot;onclick=&quot;swEng({i})">${esc(p.name)}</button>`).join('');
+    document.getElementById('engTabs').innerHTML=S.profiles.map((p,i)=>'<button class="tab '+(i===S.activeProfileIdx?'act':'')+'" onclick="swEng('+i+')">'+esc(p.name)+'</button>').join('');
     const p=S.profiles[S.activeProfileIdx];
-    document.getElementById('engForm').innerHTML=`
-        <div class="fg"><label>引擎标签</label><input value="${esc(p.name)}" onchange="uEng('name',this.value)"></div>
-        <div class="fg"><label>Base URL</label><input value="${esc(p.base_url)}" placeholder="https://api.openai.com/v1" onchange="uEng('base_url',this.value)"></div>
-        <div class="fg"><label>API Key</label><input type="password" value="${esc(p.api_key)}" onchange="uEng('api_key',this.value)"><span style="font-size:10px;color:var(--text2)">🔒 浏览器本地</span></div>
-        <div class="fr"><div class="fg"><label>模型 ID</label><input id="mdlIn" value="${esc(p.model)}" onchange="uEng('model',this.value)"></div><div class="fg" style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="btn btn-s" onclick="fMdls()">🔄 获取</button></div></div>
-        <div id="mdlBox"></div>
-        <h4 style="margin:12px 0 6px;font-size:13px">🎛️ 运行时参数</h4>
-        <div class="pt"><input type="checkbox" ${p.use_temperature?'checked':''} onchange="uEng('use_temperature',this.checked);rEngF()"><label>🔥 Temperature</label></div>
-        {p.use_temperature?`<div class=&quot;ps&quot;><input type=&quot;range&quot; min=&quot;0&quot; max=&quot;2&quot; step=&quot;0.1&quot; value=&quot;{p.temperature}" oninput="this.nextElementSibling.textContent=this.value;uEng('temperature',+this.value)"><span class="pv">${p.temperature}</span></div>`:''}
-        <div class="pt"><input type="checkbox" ${p.use_max_tokens?'checked':''} onchange="uEng('use_max_tokens',this.checked);rEngF()"><label>📏 Max Tokens</label></div>
-        {p.use_max_tokens?`<div class=&quot;ps&quot;><input type=&quot;number&quot; style=&quot;width:110px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text)&quot; value=&quot;{p.max_tokens}" min="1" max="2000000" onchange="uEng('max_tokens',+this.value)"><div class="presets"><button onclick="sMT(4096)">4K</button><button onclick="sMT(8192)">8K</button><button onclick="sMT(16384)">16K</button><button onclick="sMT(32768)">32K</button><button onclick="sMT(65536)">64K</button><button onclick="sMT(131072)">128K</button><button onclick="sMT(1048576)">1M</button><button onclick="sMT(2000000)">2M</button></div></div>`:''}
-        <div class="pt"><input type="checkbox" ${p.use_top_p?'checked':''} onchange="uEng('use_top_p',this.checked);rEngF()"><label>🎲 Top P</label></div>
-        {p.use_top_p?`<div class=&quot;ps&quot;><input type=&quot;range&quot; min=&quot;0&quot; max=&quot;1&quot; step=&quot;0.05&quot; value=&quot;{p.top_p}" oninput="this.nextElementSibling.textContent=this.value;uEng('top_p',+this.value)"><span class="pv">${p.top_p}</span></div>`:''}
-        <div class="pt"><input type="checkbox" ${p.use_frequency_penalty?'checked':''} onchange="uEng('use_frequency_penalty',this.checked);rEngF()"><label>🚫 Frequency Penalty</label></div>
-        {p.use_frequency_penalty?`<div class=&quot;ps&quot;><input type=&quot;range&quot; min=&quot;-2&quot; max=&quot;2&quot; step=&quot;0.1&quot; value=&quot;{p.frequency_penalty}" oninput="this.nextElementSibling.textContent=this.value;uEng('frequency_penalty',+this.value)"><span class="pv">${p.frequency_penalty}</span></div>`:''}
-        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-s btn-p" onclick="saveEng()">💾 保存配置</button>
-            <button class="btn btn-s" onclick="tConn()">🔑 测试连通</button>
-            ${S.profiles.length>1?'<button class="btn btn-s btn-d" onclick="dEng()">🗑️ 删除</button>':''}
-        </div>`;
+    let html='';
+    html+='<div class="fg"><label>引擎标签</label><input value="'+esc(p.name)+'" onchange="uEng(\'name\',this.value)"></div>';
+    html+='<div class="fg"><label>Base URL</label><input value="'+esc(p.base_url)+'" placeholder="https://api.openai.com/v1" onchange="uEng(\'base_url\',this.value)"></div>';
+    html+='<div class="fg"><label>API Key</label><input type="password" value="'+esc(p.api_key)+'" onchange="uEng(\'api_key\',this.value)"><span style="font-size:10px;color:var(--text2)">🔒 浏览器本地</span></div>';
+    html+='<div class="fr"><div class="fg"><label>模型 ID</label><input id="mdlIn" value="'+esc(p.model)+'" onchange="uEng(\'model\',this.value)"></div><div class="fg" style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="btn btn-s" onclick="fMdls()">🔄 获取</button></div></div>';
+    html+='<div id="mdlBox"></div>';
+    html+='<h4 style="margin:12px 0 6px;font-size:13px">🎛️ 运行时参数</h4>';
+    html+='<div class="pt"><input type="checkbox" '+(p.use_temperature?'checked':'')+' onchange="uEng(\'use_temperature\',this.checked);rEngF()"><label>🔥';
+    if(p.use_temperature)html+='<div class="ps"><input type="range" min="0" max="2" step="0.1" value="'+p.temperature+'" oninput="this.nextElementSibling.textContent=this.value;uEng(\'temperature\',+this.value)"><span class="pv">'+p.temperature+'</span></div>';
+    html+='<div class="pt"><input type="checkbox" '+(p.use_max_tokens?'checked':'')+' onchange="uEng(\'use_max_tokens\',this.checked);rEngF()"><label>📏 Max Tokens</label></div>';
+    if(p.use_max_tokens)html+='<div class="ps"><input type="number" style="width:110px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text)" value="'+p.max_tokens+'" min="1" max="2000000" onchange="uEng(\'max_tokens\',+this.value)"><div class="presets"><button onclick="sMT(4096)">4K</button><button onclick="sMT(8192)">8K</button><button onclick="sMT(16384)">16K</button><button onclick="sMT(32768)">32K</button><button onclick="sMT(65536)">64K</button><button onclick="sMT(131072)">128K</button><button onclick="sMT(1048576)">1M</button><button onclick="sMT(2000000)">2M</button></div></div>';
+    html+='<div class="pt"><input type="checkbox" '+(p.use_top_p?'checked':'')+' onchange="uEng(\'use_top_p\',this.checked);rEngF()"><label>🎲 Top P</label></div>';
+    if(p.use_top_p)html+='<div class="ps"><input type="range" min="0" max="1" step="0.05" value="'+p.top_p+'" oninput="this.nextElementSibling.textContent=this.value;uEng(\'top_p\',+this.value)"><span class="pv">'+p.top_p+'</span></div>';
+    html+='<div class="pt"><input type="checkbox" '+(p.use_frequency_penalty?'checked':'')+' onchange="uEng(\'use_frequency_penalty\',this.checked);rEngF()"><label>🚫 Frequency Penalty</label></div>';
+    if(p.use_frequency_penalty)html+='<div class="ps"><input type="range" min="-2" max="2" step="0.1" value="'+p.frequency_penalty+'" oninput="this.nextElementSibling.textContent=this.value;uEng(\'frequency_penalty\',+this.value)"><span class="pv">'+p.frequency_penalty+'</span></div>';
+    html+='<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">';
+    html+='<button class="btn btn-s btn-p" onclick="saveEng()">💾 保存配置</button>';
+    html+='<button class="btn btn-s" onclick="tConn()">🔑 测试连通</button>';
+    if(S.profiles.length>1)html+='<button class="btn btn-s btn-d" onclick="dEng()">🗑️ 删除</button>';
+    html+='</div>';
+    document.getElementById('engForm').innerHTML=html;
 }
 function swEng(i){S.activeProfileIdx=i;save();rEngF();renderBdg()}
 function uEng(k,v){S.profiles[S.activeProfileIdx][k]=v;save();renderBdg()}
-function addEng(){S.profiles.push({...DP,name:'引擎'+(S.profiles.length+1)});S.activeProfileIdx=S.profiles.length-1;save();rEngF()}
+function addEng(){S.profiles.push({...DP,name:'引擎'+(S.profiles.length+1)});S.activeProfileIdx=S.profiles.length-1;save();r}
 function dEng(){if(S.profiles.length<=1||!confirm('确定删除？'))return;S.profiles.splice(S.activeProfileIdx,1);S.activeProfileIdx=0;save();rEngF();renderBdg()}
 function sMT(v){uEng('max_tokens',v);rEngF()}
 function saveEng(){save();toast('✅ 配置已保存')}
@@ -667,9 +695,9 @@ async function fMdls(){
         if(!r.ok)throw new Error('HTTP '+r.status);
         const data=await r.json();const models=(data.data||[]).map(m=>m.id).sort();
         if(!models.length){box.innerHTML='<span style="font-size:11px">未获取到模型</span>';return}
-        box.innerHTML=`<div class="fg"><label>选择模型 (models.length个)</label><selectonchange=&quot;if(this.value)uEng(′model′,this.value);document.getElementById(′mdlIn′).value=this.value;this.closest(′.fg′).remove();toast(′已切换:′+this.value)&quot;><optionvalue=&quot;&quot;>(不覆盖)</option>{models.length}个)</label><select onchange=&quot;if(this.value){uEng(&#x27;model&#x27;,this.value);document.getElementById(&#x27;mdlIn&#x27;).value=this.value;this.closest(&#x27;.fg&#x27;).remove();toast(&#x27;已切换: &#x27;+this.value)}&quot;><option value=&quot;&quot;>(不覆盖)</option>models.length个)</label><selectonchange=&quot;if(this.value)uEng(′model′,this.value);document.getElementById(′mdlIn′).value=this.value;this.closest(′.fg′).remove();toast(′已切换:′+this.value)&quot;><optionvalue=&quot;&quot;>(不覆盖)</option>{models.map(m=>`<option value="esc(m)&quot;>{esc(m)}&quot;>esc(m)&quot;>{esc(m)}</option>`).join('')}</select></div>`;
+        box.innerHTML='<div class="fg"><label>选择模型 ('+models.length+'个)</label><select onchange="if(this.value){uEng(\'model\',this.value);document.getElementById(\'mdlIn\').value=this.value;this.closest(\'.fg\').remove();toast(\'已切换: \'+this.value)}"><option value="">(不覆盖)</option>'+models.map(m=>'<option value="'+esc(m)+'">'+esc(m)+'</option>').join('')+'</select></div>';
         toast('获取到 '+models.length+' 个模型');
-    }catch(e){box.innerHTML=`<span style="font-size:11px;color:var(--err)">失败: ${esc(e.message)}</span>`}
+    }catch(e){box.innerHTML='<span style="font-size:11px;color:var(--err)">失败: '+esc(e.message)+'</span>'}
 }
 
 async function tConn(){
@@ -681,14 +709,14 @@ async function tConn(){
     }catch(e){toast('❌ '+e.message,'er')}
 }
 
-function updExp(){const c=S.chats[S.currentChatId];if(!c)return;const f=document.getElementById('expFmt').value;const ms=c.messages.filter(m=>m.role!=='system');let t;if(f==='pure')t=ms.filter(m=>m.role==='assistant').map(m=>m.content).join('\n\n');else t=ms.map(m=>`m.role===′user′?′我′:′AI′:\n{m.role===&#x27;user&#x27;?&#x27;我&#x27;:&#x27;AI&#x27;}:\nm.role===′user′?′我′:′AI′:\n{m.content}\n${'─'.repeat(30)}\n`).join('\n');document.getElementById('expTA').value=t}
-function eTxt(){const t=document.getElementById('expTA').value;const c=S.chats[S.currentChatId];dl(t,(c?.title||'export')+'.txt','text/plain')}
-function eHtml(){const c=S.chats[S.currentChatId];const p=S.profiles[S.activeProfileIdx];const f=document.getElementById('expFmt').value;const ms=f==='pure'?c.messages.filter(m=>m.role==='assistant'):c.messages.filter(m=>m.role!=='system');dl(bExpH(ms,c.title,p.model),(c?.title||'export')+'.html','text/html')}
-function eDoc(){const c=S.chats[S.currentChatId];const f=document.getElementById('expFmt').value;const ms=f==='pure'?c.messages.filter(m=>m.role==='assistant'):c.messages.filter(m=>m.role!=='system');const body=ms.map(m=>`<h3>m.role===′user′?′📌我′:′🤖AI′</h3><pstyle=&quot;white−space:pre−wrap&quot;>{m.role===&#x27;user&#x27;?&#x27;📌 我&#x27;:&#x27;🤖 AI&#x27;}</h3><p style=&quot;white-space:pre-wrap&quot;>m.role===′user′?′📌我′:′🤖AI′</h3><pstyle=&quot;white−space:pre−wrap&quot;>{esc(m.content)}</p><hr>`).join('');dl(`<html xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8"><title>esc(c.title)</title></head><body><h1>{esc(c.title)}</title></head><body><h1>esc(c.title)</title></head><body><h1>{esc(c.title)}</h1>${body}</body></html>`,(c?.title||'export')+'.doc','application/msword')}
+function updExp(){const c=S.chats[S.currentChatId];if(!c)return;const f=document.getElementById('expFmt').value;const ms=c.messages.filter(m=>m.role!=='system');let t;if(f==='pure')t=ms.filter(m=>m.role==='assistant').map(m=>m.content).join('\n\n');else t=ms.map(m=>(m.role==='user'?'我':'AI')+':\n'+m.content+'\n'+'─'.repeat(30)+'\n').join('\n');document.getElementById('expTA').value=t}
+function eTxt(){const t=document.getElementById('expTA').value;const c=S.chats[S.currentChatId];dl(t,(c&&c.title||'export')+'.txt','text/plain')}
+function eHtml(){const c=S.chats[S.currentChatId];const p=S.profiles[S.activeProfileIdx];const f=document.getElementById('expFmt').value;const ms=f==='pure'?c.messages.filter(m=>m.role==='assistant'):c.messages.filter(m=>m.role!=='system');dl(bExpH(ms,c.title,p.model),(c&&c.title||'export')+'.html','text/html')}
+function eDoc(){const c=S.chats[S.currentChatId];const f=document.getElementById('expFmt').value;const ms=f==='pure'?c.messages.filter(m=>m.role==='assistant'):c.messages.filter(m=>m.role!=='system');const body=ms.map(m=>'<h3>'+(m.role==='user'?'📌 我':'🤖 AI')+'</h3><p style="white-space:pre-wrap">'+esc(m.content)+'</p><hr>').join('');dl('<html xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8"><title>'+esc(c.title)+'</title></head><body><h1>'+esc(c.title)+'</h1>'+body+'</body></html>',(c&&c.title||'export')+'.doc','application/msword')}
 function cpExp(){const ta=document.getElementById('expTA');ta.select();navigator.clipboard.writeText(ta.value).then(()=>toast('已复制')).catch(()=>{document.execCommand('copy');toast('已复制')})}
-function bExpH(ms,title,model){const d=new Date().toLocaleString('zh-CN');const mh=ms.map(m=>`<div style="display:flex;gap:10px;margin-bottom:20px;m.role===′user′?′flex−direction:row−reverse′:′′&quot;><divstyle=&quot;width:32px;height:32px;border−radius:50{m.role===&#x27;user&#x27;?&#x27;flex-direction:row-reverse&#x27;:&#x27;&#x27;}&quot;><div style=&quot;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;background:m.role===′user′?′flex−direction:row−reverse′:′′&quot;><divstyle=&quot;width:32px;height:32px;border−radius:50{m.role==='user'?'#e3f2fd':'#e8f5e9'}">m.role===′user′?′🙋‍♂®′:′🤖′</div><divstyle=&quot;max−width:80{m.role===&#x27;user&#x27;?&#x27;🙋‍♂️&#x27;:&#x27;🤖&#x27;}</div><div style=&quot;max-width:80%;padding:12px 16px;border-radius:14px;line-height:1.7;font-size:14px;white-space:pre-wrap;background:m.role===′user′?′🙋‍♂R◯′:′🤖′</div><divstyle=&quot;max−width:80{m.role==='user'?'#d1e7ff':'#fff'};box-shadow:0 1px 2px rgba(0,0,0,.05)">esc(m.content).replace(/\n/g,′<br>′)</div></div>‘).join(′′);return‘<!DOCTYPEhtml><html><head><metacharset=&quot;utf−8&quot;><metaname=&quot;viewport&quot;content=&quot;width=device−width,initial−scale=1&quot;><title>{esc(m.content).replace(/\n/g,&#x27;<br>&#x27;)}</div></div>`).join(&#x27;&#x27;);return`<!DOCTYPE html><html><head><meta charset=&quot;utf-8&quot;><meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1&quot;><title>esc(m.content).replace(/\n/g,′<br>′)</div></div>‘).join(′′);return‘<!DOCTYPEhtml><html><head><metacharset=&quot;utf−8&quot;><metaname=&quot;viewport&quot;content=&quot;width=device−width,initial−scale=1&quot;><title>{esc(title)}</title></head><body style="font-family:-apple-system,sans-serif;background:#f0f2f5;margin:0"><div style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:20px 24px"><h1 style="font-size:20px;margin:0">💬 esc(title)</h1><divstyle=&quot;font−size:11px;opacity:.75;margin−top:4px&quot;>{esc(title)}</h1><div style=&quot;font-size:11px;opacity:.75;margin-top:4px&quot;>esc(title)</h1><divstyle=&quot;font−size:11px;opacity:.75;margin−top:4px&quot;>{d} | 🧠 esc(model)</div></div><divstyle=&quot;max−width:900px;margin:0auto;padding:20px16px&quot;>{esc(model)}</div></div><div style=&quot;max-width:900px;margin:0 auto;padding:20px 16px&quot;>esc(model)</div></div><divstyle=&quot;max−width:900px;margin:0auto;padding:20px16px&quot;>{mh}</div></body></html>`}
+function bExpH(ms,title,model){const d=new Date().toLocaleString('zh-CN');const mh=ms.map(m=>'<div style="display:flex;gap:10px;margin-bottom:20px;'+(m.role==='user'?'flex-direction:row-reverse':'')+'"><div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;background:'+(m.role==='user'?'#e3f2fd':'#e8f5e9')+'">'+(m.role==='user'?'🙋‍♂️':'🤖')+'</div><div style="max-width:80%;padding:12px 16px;border-radius:14px;line-height:1.7;font-size:14px;white-space:pre-wrap;background:'+(m.role==='user'?'#d1e7ff':'#fff')+';box-shadow:0 1px 2px rgba(0,0,0,.05)">'+esc(m.content).replace(/\n/g,'<br>')+'</div></div>').join('');return'<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title></head><body style="font-family:-apple-system,sans-serif;background:#f0f2f5;margin:0"><div style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:20px 24px"><h1 style="font-size:20px;margin:0">💬 '+esc(title)+'</h1><div style="font-size:11px;opacity:.75;margin-top:4px">'+d+' | 🧠 '+esc(model)+'</div></div><div style="max-width:900px;margin:0 auto;padding:20px 16px">'+mh+'</div></body></html>'}
 
-function eSnap(){dl(JSON.stringify(S,null,2),'ZenMux_'+new Date().toISOString().slice(0,10)+'.json','application/json');toast('快照已导出')}
+function eSnap(){dl(JSON.stringify(S,null,2),'ZenMux_'+new Date().toISOString().slice(0,10)+'.json','application/json');to照已导出')}
 function iSnap(input){
     const f=input.files[0];if(!f)return;
     const r=new FileReader();
@@ -722,8 +750,8 @@ function openM(n){document.getElementById('mo-'+n).classList.add('show');if(n===
 function closeM(n){document.getElementById('mo-'+n).classList.remove('show')}
 function hKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}
 function aRsz(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,130)+'px'}
-function toast(msg,type='ok'){const c=document.getElementById('tc');const t=document.createElement('div');t.className='tt '+type;t.textContent=msg;c.appendChild(t);setTimeout(()=>t.remove(),2500)}
-function dl(c,n,m){const b=new Blob([c],{type:m+';charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=n;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)}
+function toast(msg,type){if(!type)type='ok';const c=document.getElementById('tc');const t=document.createElement('div');t.className='tt '+type;t.textContent=msg;c.appendChild(t);setTimeout(()=>t.remove(),2500)}
+function dl(c,n,m){const b=new Blob([c],{type:m+';charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a.download=n;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)}
 function esc(t){if(!t)return'';const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 function cntW(t){if(!t)return 0;return(t.match(/[\u4e00-\u9fff]/g)||[]).length+(t.match(/[a-zA-Z]+/g)||[]).length}
 
@@ -739,7 +767,7 @@ document.querySelectorAll('.mo').forEach(o=>o.addEventListener('click',function(
 document.addEventListener('click',function(e){if(!e.target.closest('.att-btn')&&!e.target.closest('.att-pan'))document.getElementById('attPan').classList.remove('show')});
 
 load();render();
-if(/iPad|iPhone|iPod/.test(navigator.userAgent)){const lr=localStorage.getItem('zm_ios');if(!lr||Date.now()-+lr>3*86400000){setTimeout(()=>toast('💡 iOS建议定期导出快照'),1500);localStorage.setItem('zm_ios',Date.now()+'')}}
+if(/iPad|iPhone|iPod/.test(navigator.userAgent)){const lr=localStorage.getItem('zm_ios');if(!lr||Date.now()-+lr>3*400000){setTimeout(()=>toast('💡 iOS建议定期导出快照'),1500);localStorage.setItem('zm_ios',Date.now()+'')}}
 </script>
 </body>
 </html>
