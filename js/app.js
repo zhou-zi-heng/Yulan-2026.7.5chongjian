@@ -1,5 +1,5 @@
-/* ===== 飞凡AI - 主入口 (v2.3.0) ===== */
-/* 全局状态 + 引擎配置 1:1 还原原版 + 完整业务逻辑 */
+/* ===== 飞凡AI - 主入口 (v2.3.2) ===== */
+/* 全局当前引擎模式 - 所有会话实时跟随设置 */
 
 /* ============================================================
    ===== 全局状态 ==============================================
@@ -73,6 +73,10 @@ async function loadState() {
         if (p.top_p === undefined) p.top_p = 1;
         if (p.frequency_penalty === undefined) p.frequency_penalty = 0;
     }
+    // 确保 currentEngId 指向一个真实存在的引擎
+    if (!S.profiles[S.currentEngId]) {
+        S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
+    }
     // 应用主题
     if (S.theme === 'dark') {
         document.documentElement.setAttribute('data-theme', 'dark');
@@ -88,9 +92,9 @@ function curChat() {
     if (!S.currentChatId) return null;
     return S.chats[S.currentChatId] || null;
 }
+/* ✅ 全局当前引擎模式：所有会话实时跟随 S.currentEngId */
 function curProfile() {
-    const c = curChat();
-    const eid = (c && c.engineId) || S.currentEngId;
+    const eid = S.currentEngId;
     return S.profiles[eid] || S.profiles[Object.keys(S.profiles)[0]];
 }
 
@@ -103,7 +107,6 @@ function newChat() {
         id: id,
         title: '新对话',
         messages: [],
-        engineId: S.currentEngId,
         systemPrompt: '',
         knowledgeBase: [],
         isPinned: false,
@@ -303,7 +306,9 @@ function renderEngTabs() {
             renderEngTabs();
             renderEngForm();
             renderSB();
+            renderMs();
             scheduleSave();
+            toast('已切换到：' + p.name);
         };
         tabs.appendChild(b);
     });
@@ -321,7 +326,7 @@ const MAX_TOKEN_PRESETS = [
     { label: '1M', val: 1048576 },
 ];
 
-/* ---------- 引擎表单 1:1 还原 ---------- */
+/* ---------- 引擎表单 ---------- */
 function renderEngForm() {
     const form = document.getElementById('engForm');
     if (!form) return;
@@ -332,19 +337,16 @@ function renderEngForm() {
     }
 
     form.innerHTML = `
-        <!-- 引擎名称 -->
         <div class="fg">
             <label>引擎名称</label>
             <input type="text" id="engName" value="${esc(p.name)}">
         </div>
 
-        <!-- Base URL -->
         <div class="fg">
             <label>🌐 Base URL</label>
             <input type="text" id="engBase" value="${esc(p.base)}" placeholder="https://api.openai.com/v1">
         </div>
 
-        <!-- API Key -->
         <div class="fg">
             <label>🔑 API Key
                 <span style="font-weight:normal;color:var(--text2);font-size:11px">（仅本地存储，不上传）</span>
@@ -352,7 +354,6 @@ function renderEngForm() {
             <input type="password" id="engKey" value="${esc(p.key)}" autocomplete="off" placeholder="sk-...">
         </div>
 
-        <!-- 模型 ID + 获取按钮 -->
         <div class="fg">
             <label>🧠 模型 ID</label>
             <div style="display:flex;gap:6px">
@@ -362,11 +363,9 @@ function renderEngForm() {
             <div id="mdlSel" style="display:none;margin-top:6px"></div>
         </div>
 
-        <!-- 4 个运行时参数开关 -->
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
             <h4 style="font-size:13px;margin-bottom:10px">⚙️ 运行时参数</h4>
 
-            <!-- Temperature -->
             <div class="pt">
                 <input type="checkbox" id="engUseTemp" ${p.useTemp ? 'checked' : ''}>
                 <label for="engUseTemp">🔥 Temperature 温度</label>
@@ -378,7 +377,6 @@ function renderEngForm() {
                 </div>
             </div>
 
-            <!-- Max Tokens -->
             <div class="pt">
                 <input type="checkbox" id="engUseMax" ${p.useMax ? 'checked' : ''}>
                 <label for="engUseMax">📏 Max Tokens 最大输出长度</label>
@@ -392,7 +390,6 @@ function renderEngForm() {
                 </div>
             </div>
 
-            <!-- Top P -->
             <div class="pt">
                 <input type="checkbox" id="engUseTopP" ${p.useTopP ? 'checked' : ''}>
                 <label for="engUseTopP">🎲 Top P 核采样</label>
@@ -402,7 +399,6 @@ function renderEngForm() {
                 <div>当前值：<span class="pv" id="engTopPV">${p.top_p}</span></div>
             </div>
 
-            <!-- Frequency Penalty -->
             <div class="pt">
                 <input type="checkbox" id="engUseFreq" ${p.useFreq ? 'checked' : ''}>
                 <label for="engUseFreq">🚫 Frequency Penalty 重复惩罚</label>
@@ -413,7 +409,6 @@ function renderEngForm() {
             </div>
         </div>
 
-        <!-- 底部操作按钮 -->
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
             <button class="btn btn-p" onclick="saveEng()">💾 保存配置</button>
             <button class="btn" onclick="tConn()" id="tConnBtn">🔑 测试连通</button>
@@ -422,12 +417,10 @@ function renderEngForm() {
         </div>
     `;
 
-    // 事件绑定
     bindEngEvents(p);
 }
 
 function bindEngEvents(p) {
-    // 4 个开关：勾选状态切换显示
     document.getElementById('engUseTemp').onchange = (e) => {
         document.getElementById('engTempBox').style.display = e.target.checked ? '' : 'none';
     };
@@ -440,7 +433,6 @@ function bindEngEvents(p) {
     document.getElementById('engUseFreq').onchange = (e) => {
         document.getElementById('engFreqBox').style.display = e.target.checked ? '' : 'none';
     };
-    // 滑块实时显示
     document.getElementById('engTemp').oninput = (e) => {
         document.getElementById('engTempV').textContent = e.target.value;
     };
@@ -452,7 +444,6 @@ function bindEngEvents(p) {
     };
 }
 
-/* ---------- 设置 Max Tokens 预设 ---------- */
 function setMax(val) {
     document.getElementById('engMax').value = val;
 }
@@ -482,6 +473,7 @@ function saveEng() {
     scheduleSave();
     renderEngTabs();
     renderSB();
+    renderMs();
     toast('✅ 配置已保存');
 }
 
@@ -489,7 +481,6 @@ function saveEng() {
 async function fMdls() {
     const p = S.profiles[S.currentEngId];
     if (!p) return;
-    // 先用界面上最新的值
     p.base = document.getElementById('engBase').value.trim();
     p.key = document.getElementById('engKey').value.trim();
     if (!p.base || !p.key) {
@@ -564,6 +555,7 @@ function addEng() {
     renderEngTabs();
     renderEngForm();
     renderSB();
+    renderMs();
 }
 
 /* ---------- 删除引擎 ---------- */
@@ -581,6 +573,7 @@ function delEng() {
     renderEngTabs();
     renderEngForm();
     renderSB();
+    renderMs();
     toast('已删除');
 }
 
@@ -654,7 +647,6 @@ async function send() {
     const userVisibleText = text || '(已上传 ' + _pendingAtts.length + ' 个附件)';
     const attsForUser = _pendingAtts.slice();
 
-    // 拼装附件文本 + 图片
     let attachedText = '';
     const imageAtts = [];
     attsForUser.forEach(a => {
@@ -665,7 +657,6 @@ async function send() {
         }
     });
 
-    // 知识库
     let kbText = '';
     if (c.knowledgeBase && c.knowledgeBase.length) {
         c.knowledgeBase.forEach(k => {
@@ -679,7 +670,6 @@ async function send() {
 
     const composedText = (kbText ? kbText + '\n' : '') + (attachedText ? attachedText + '\n' : '') + text;
 
-    // 推入用户消息
     const userMsg = {
         id: gId(),
         role: 'user',
@@ -691,7 +681,6 @@ async function send() {
     };
     c.messages.push(userMsg);
 
-    // 占位 assistant
     const aiMsg = {
         id: gId(),
         role: 'assistant',
@@ -715,7 +704,6 @@ async function send() {
     renderMs();
     renderSB();
 
-    // 构造 sendMsgs
     const sendMsgs = [];
     if (c.systemPrompt && c.systemPrompt.trim()) {
         sendMsgs.push({ role: 'system', content: c.systemPrompt });
@@ -725,7 +713,6 @@ async function send() {
         if (m === aiMsg) return;
         if (m._interrupted && !m.content) return;
         if (idx === lastUserIdx && m.role === 'user') {
-            // 多模态
             if (imageAtts.length) {
                 const parts = [];
                 if (composedText) parts.push({ type: 'text', text: composedText });
@@ -1061,6 +1048,10 @@ async function iSnap(inputEl) {
         const { state: importedState, source } = await Snapshot.importFromFile(file);
         const finalState = mode ? importedState : Snapshot.mergeStates(S, importedState);
         S = finalState;
+        // 确保 currentEngId 有效
+        if (!S.profiles[S.currentEngId]) {
+            S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
+        }
         await saveNow();
         await Snapshot.snapNow(S);
         renderAll();
