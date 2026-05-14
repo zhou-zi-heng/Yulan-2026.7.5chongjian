@@ -107,9 +107,8 @@
                     <div class="att-pan" id="attPan">
                         <div class="fg" style="margin-bottom:6px">
                             <label>上传文件（支持多选 / 拖拽 / 粘贴）</label>
-                            <input type="file" id="attIn" multiple
-                                   accept=".txt,.md,.py,.json,.csv,.tsv,.log,.pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.webp,.xml,.yaml,.yml,.toml,.ini,.conf,.html,.htm,.css,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.swift,.kt,.sql,.sh,.bat,.rtf"
-                                   onchange="onAtt(this)">
+                            <input type="file" id="attIn" multiple onchange="onAtt(this)">
+
                         </div>
                         <div class="pt">
                             <input type="checkbox" id="attCont" onchange="updAttCont()">
@@ -174,9 +173,8 @@
             </div>
             <div class="fg">
                 <label>📚 全局知识库文件（支持多选）</label>
-                <input type="file" id="kbIn" multiple
-                       accept=".txt,.md,.py,.json,.csv,.tsv,.log,.pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.webp,.xml,.yaml,.yml,.toml,.ini,.conf,.html,.htm,.css,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.swift,.kt,.sql,.sh,.bat,.rtf"
-                       onchange="addKB(this)">
+                <input type="file" id="kbIn" multiple onchange="addKB(this)">
+
                 <div id="kbList" style="margin-top:8px"></div>
             </div>
 
