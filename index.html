@@ -5,10 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>飞凡AI对话界面</title>
 
-    <!-- ✅ Emoji Favicon（零文件、高清、所有浏览器支持） -->
+    <!-- Emoji Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
-    <!-- iOS 添加到主屏幕图标（PWA 第四批会做完整版） -->
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="飞凡AI">
 
     <!-- 第三方库 CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
@@ -25,24 +31,24 @@
     <script src="https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/cjs/index.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/markdown-it-emoji@3.0.0/dist/markdown-it-emoji.min.js"></script>
 
-    <!-- ✅ 修复 P0：拆分两个 script 标签 -->
+    <!-- ✅ P0 修复：拆分两个 script 标签 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
-    <!-- 本地样式（带版本号防缓存） -->
-    <link rel="stylesheet" href="css/main.css?v=2.0.0">
-    <link rel="stylesheet" href="css/theme.css?v=2.0.0">
+    <!-- 本地样式 -->
+    <link rel="stylesheet" href="css/main.css?v=2.3.0">
+    <link rel="stylesheet" href="css/theme.css?v=2.3.0">
 </head>
 <body>
 
 <div class="app">
-    <!-- 侧边栏遮罩（移动端） -->
+    <!-- 移动端遮罩 -->
     <div class="sb-ov" id="sbOv" onclick="togSB()"></div>
 
     <!-- 侧边栏 -->
     <aside class="sb" id="sb">
         <div class="sb-hdr">
-            <h1>🚀 飞凡AI对话界面</h1>
+            <h1>🚀 飞凡AI</h1>
             <button class="btn btn-s" onclick="openM('set')">⚙️</button>
         </div>
         <div class="sb-body">
@@ -76,7 +82,7 @@
             </div>
         </header>
 
-        <!-- 消息区域（同时是拖拽目标） -->
+        <!-- 消息区 -->
         <div class="msgs" id="msgsArea">
             <div class="empty">
                 <div class="ico">🚀</div>
@@ -85,7 +91,7 @@
             </div>
         </div>
 
-        <!-- 拖拽提示遮罩 -->
+        <!-- 拖拽遮罩 -->
         <div class="drop-mask" id="dropMask">
             <div class="drop-mask-inner">
                 <div style="font-size:48px">📥</div>
@@ -128,7 +134,9 @@
     </div>
 </div>
 
-<!-- 模态框：引擎设置 -->
+<!-- ============================================== -->
+<!-- ===== 模态框：⚙️ 引擎配置（1:1 还原原版） ===== -->
+<!-- ============================================== -->
 <div class="mo" id="mo-set">
     <div class="md">
         <div class="md-h">
@@ -136,8 +144,11 @@
             <button class="md-x" onclick="closeM('set')">×</button>
         </div>
         <div class="md-b">
+            <!-- 引擎 Tab -->
             <div class="tabs" id="engTabs"></div>
             <button class="btn btn-s" onclick="addEng()" style="margin-bottom:10px">➕ 新增引擎</button>
+
+            <!-- 引擎表单 -->
             <div id="engForm"></div>
 
             <!-- 存储信息 -->
@@ -169,7 +180,6 @@
                 <div id="kbList" style="margin-top:8px"></div>
             </div>
 
-            <!-- 自动快照间隔 -->
             <div class="fg">
                 <label>⏰ 自动快照间隔</label>
                 <select id="snapInterval" onchange="updSnapInterval(this.value)">
@@ -243,22 +253,22 @@
     <img id="lbImg" src="">
 </div>
 
-<!-- Toast 容器 -->
+<!-- Toast -->
 <div class="tc" id="tc"></div>
 
-<!-- 业务脚本（按依赖顺序加载，带版本号防缓存） -->
-<script src="js/utils.js?v=2.1.0"></script>
-<script src="js/storage.js?v=2.1.0"></script>
-<script src="js/api.js?v=2.1.0"></script>
-<script src="js/ui.js?v=2.1.0"></script>
-<script src="js/parsers/text.js?v=2.1.0"></script>
-<script src="js/parsers/csv.js?v=2.1.0"></script>
-<script src="js/parsers/office.js?v=2.1.0"></script>
-<script src="js/parsers/pdf.js?v=2.1.0"></script>
-<script src="js/parser.js?v=2.1.0"></script>
-<script src="js/upload.js?v=2.1.0"></script>
-<script src="js/app.js?v=2.1.0"></script>
-
+<!-- 业务脚本 -->
+<script src="js/utils.js?v=2.3.0"></script>
+<script src="js/storage.js?v=2.3.0"></script>
+<script src="js/api.js?v=2.3.0"></script>
+<script src="js/ui.js?v=2.3.0"></script>
+<script src="js/parsers/text.js?v=2.3.0"></script>
+<script src="js/parsers/csv.js?v=2.3.0"></script>
+<script src="js/parsers/office.js?v=2.3.0"></script>
+<script src="js/parsers/pdf.js?v=2.3.0"></script>
+<script src="js/parser.js?v=2.3.0"></script>
+<script src="js/upload.js?v=2.3.0"></script>
+<script src="js/snapshot.js?v=2.3.0"></script>
+<script src="js/app.js?v=2.3.0"></script>
 
 </body>
 </html>
