@@ -17,6 +17,10 @@ let _saveTimer = null;
 let _streamCtrl = null;  // 当前流式控制器
 let _streamUpdater = null;
 let _saveInProgress = null; // Promise，防止并发保存
+// 当前批次待发送的附件（一次性，发送后清空）
+let _pendingAtts = [];
+// "持续参考" 开关 → 当前批次的附件复制到知识库
+let _attContinuous = false;
 
 /* ---------- 数据保存（防抖 + 并发保护） ---------- */
 function scheduleSave() {
@@ -629,13 +633,6 @@ function togSB() {
     document.getElementById('sb').classList.toggle('open');
     document.getElementById('sbOv').classList.toggle('show');
 }
-
-/* ---------- 附件面板（占位，第三批实现） ---------- */
-function togAtt() { document.getElementById('attPan').classList.toggle('show'); }
-function onAtt() { toast('附件功能将在第三批启用', 'er'); }
-function updAttCont() {}
-function clrAtt() {}
-function addKB() { toast('知识库功能将在第三批启用', 'er'); }
 
 /* ---------- 导出/快照（占位，第四批实现） ---------- */
 function updExp() {}
