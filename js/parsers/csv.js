@@ -1,9 +1,18 @@
-/* ===== 飞凡AI - CSV/TSV 解析（无依赖，自实现） ===== */
+/* ===== 飞凡AI - CSV/TSV 解析 (v2.3.1，独立无依赖) ===== */
 
 const CSVParser = (function () {
 
+    /* ---------- 自带读文本（不依赖 TextParser） ---------- */
+    function readText(file) {
+        return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = e => resolve(e.target.result || '');
+            r.onerror = () => reject(new Error('读取失败'));
+            r.readAsText(file, 'utf-8');
+        });
+    }
+
     /* ---------- 解析 CSV/TSV 文本 ---------- */
-    /* 简单实现：支持引号包裹、逗号/制表符分隔、转义双引号 */
     function parseCSVText(text, delimiter) {
         const rows = [];
         let cur = [];
@@ -15,12 +24,8 @@ const CSVParser = (function () {
             const ch = text[i];
             if (inQuotes) {
                 if (ch === '"') {
-                    if (text[i + 1] === '"') {
-                        field += '"';
-                        i++;
-                    } else {
-                        inQuotes = false;
-                    }
+                    if (text[i + 1] === '"') { field += '"'; i++; }
+                    else { inQuotes = false; }
                 } else {
                     field += ch;
                 }
@@ -36,7 +41,7 @@ const CSVParser = (function () {
                     cur = [];
                     field = '';
                 } else if (ch === '\r') {
-                    // 跳过，等 \n
+                    // 跳过
                 } else {
                     field += ch;
                 }
@@ -60,7 +65,7 @@ const CSVParser = (function () {
         const normalized = useRows.map(r => {
             const arr = r.slice();
             while (arr.length < colCount) arr.push('');
-            return arr.map(c => String(c || '').replace(/\|/g, '\\|').replace(/\n/g, ' '));
+            return arr.map(c => String(c == null ? '' : c).replace(/\|/g, '\\|').replace(/\n/g, ' '));
         });
 
         const header = normalized[0];
@@ -68,9 +73,7 @@ const CSVParser = (function () {
 
         let md = '| ' + header.join(' | ') + ' |\n';
         md += '|' + header.map(() => '---').join('|') + '|\n';
-        body.forEach(r => {
-            md += '| ' + r.join(' | ') + ' |\n';
-        });
+        body.forEach(r => { md += '| ' + r.join(' | ') + ' |\n'; });
 
         if (truncated) {
             md += '\n_（共 ' + rows.length + ' 行，已显示前 ' + limit + ' 行）_';
@@ -78,9 +81,8 @@ const CSVParser = (function () {
         return md;
     }
 
-    /* ---------- 主入口 ---------- */
     async function parse(file, ext) {
-        const text = await TextParser.readText(file);
+        const text = await readText(file);
         const delimiter = (ext || '').toLowerCase() === 'tsv' ? '\t' : ',';
         const rows = parseCSVText(text, delimiter);
         const md = rowsToMarkdown(rows);
@@ -100,5 +102,8 @@ const CSVParser = (function () {
         parse: parse,
         parseCSVText: parseCSVText,
         rowsToMarkdown: rowsToMarkdown,
+        readText: readText,
     };
 })();
+
+window.CSVParser = CSVParser;
