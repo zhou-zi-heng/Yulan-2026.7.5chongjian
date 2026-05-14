@@ -1027,12 +1027,21 @@ function renderKBList() {
 }
 
 /* ============================================================
-   ===== 快照 / 导入导出 ======================================
+   ===== 快照 / 导入导出 (v2.3.3) =============================
    ============================================================ */
+
+/* 导出：弹一个简单的选择框 */
 function eSnap() {
-    Snapshot.exportToFile(S);
+    const includeKey = confirm(
+        '导出快照\n\n' +
+        '✅ 确定 = 包含 API Key（推荐：仅本地备份用）\n' +
+        '❌ 取消 = 不含 API Key（推荐：分享/上传云盘用）\n\n' +
+        '提示：不含 Key 的快照导入后需要重新填写 Key。'
+    );
+    Snapshot.exportToFile(S, { includeKey: includeKey });
 }
 
+/* 导入：自动智能保护本地 Key */
 async function iSnap(inputEl) {
     if (!inputEl.files || !inputEl.files.length) return;
     const file = inputEl.files[0];
@@ -1041,14 +1050,33 @@ async function iSnap(inputEl) {
         '导入模式选择：\n\n' +
         '✅ 确定 = 替换模式（清除现有数据，完全使用快照）\n' +
         '❌ 取消 = 合并模式（保留现有 + 添加快照内容）\n\n' +
-        '建议：第一次导入或恢复备份选"确定"；从其他设备同步选"取消"。'
+        '✨ 两种模式都会智能保护你本地已有的 API Key（如快照里 Key 为空，自动保留本地 Key）'
     );
 
     try {
         const { state: importedState, source } = await Snapshot.importFromFile(file);
-        const finalState = mode ? importedState : Snapshot.mergeStates(S, importedState);
+
+        let finalState;
+        if (mode) {
+            // 替换模式：先把空 key 用本地 key 填上
+            const { state: protectedState, protectedCount } =
+                Snapshot.protectLocalKeys(importedState, S);
+            finalState = protectedState;
+            if (protectedCount > 0) {
+                toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
+            }
+        } else {
+            // 合并模式：先 protectLocalKeys，再 merge
+            const { state: protectedState, protectedCount } =
+                Snapshot.protectLocalKeys(importedState, S);
+            finalState = Snapshot.mergeStates(S, protectedState);
+            if (protectedCount > 0) {
+                toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
+            }
+        }
+
+        // 应用
         S = finalState;
-        // 确保 currentEngId 有效
         if (!S.profiles[S.currentEngId]) {
             S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
         }
@@ -1064,6 +1092,7 @@ async function iSnap(inputEl) {
     }
     inputEl.value = '';
 }
+
 
 /* ============================================================
    ===== 对话导出 ==============================================
