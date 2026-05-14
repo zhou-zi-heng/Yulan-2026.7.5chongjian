@@ -1,23 +1,19 @@
-/* ===== 飞凡AI - 文件解析分发器 ===== */
-/* 根据扩展名 / MIME 自动分发到对应解析器 */
+/* ===== 飞凡AI - 文件解析分发器 (v2.3.1) ===== */
 
 const Parser = (function () {
 
-    /* ---------- 提取扩展名 ---------- */
     function getExt(name) {
         if (!name) return '';
         const m = name.match(/\.([a-zA-Z0-9]+)$/);
         return m ? m[1].toLowerCase() : '';
     }
 
-    /* ---------- 是否为图片 ---------- */
-    const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+    const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
     function isImage(file) {
         if (file.type && file.type.startsWith('image/')) return true;
         return IMAGE_EXTS.has(getExt(file.name));
     }
 
-    /* ---------- 图片读取为 base64 ---------- */
     function readImageAsDataURL(file) {
         return new Promise((resolve, reject) => {
             const r = new FileReader();
@@ -27,7 +23,16 @@ const Parser = (function () {
         });
     }
 
-    /* ---------- 图片自动压缩（>1024px 缩） ---------- */
+    /* ---------- 通用文本读取（独立实现，不依赖任何 parser） ---------- */
+    function readTextSafe(file) {
+        return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = e => resolve(e.target.result || '');
+            r.onerror = () => reject(new Error('文件读取失败'));
+            r.readAsText(file, 'utf-8');
+        });
+    }
+
     async function compressImage(dataUrl, maxSize) {
         const max = maxSize || 1024;
         return new Promise((resolve) => {
@@ -49,16 +54,14 @@ const Parser = (function () {
                 cv.width = width; cv.height = height;
                 const ctx = cv.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
-                // JPEG 压缩；PNG 透明图保持 PNG
                 const isPng = dataUrl.startsWith('data:image/png');
                 resolve(cv.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85));
             };
-            img.onerror = () => resolve(dataUrl); // 失败用原图
+            img.onerror = () => resolve(dataUrl);
             img.src = dataUrl;
         });
     }
 
-    /* ---------- 主入口 ---------- */
     async function parseFile(file) {
         const ext = getExt(file.name);
         const sizeText = fmtSize(file.size);
@@ -72,7 +75,7 @@ const Parser = (function () {
                     type: 'image',
                     fileName: file.name,
                     dataUrl: dataUrl,
-                    text: '', // 图片不转文字
+                    text: '',
                     meta: { ext: ext, size: file.size, sizeText: sizeText },
                 };
             } catch (e) {
@@ -85,41 +88,58 @@ const Parser = (function () {
             throw new Error('旧版 .doc 格式无法在浏览器解析，请用 Word 另存为 .docx 后重传');
         }
 
-        // 解析分发
+        // 专用解析器分发（带防御性检查）
         try {
-            if (ext === 'docx') {
+            // DOCX
+            if (ext === 'docx' && typeof OfficeParser !== 'undefined') {
                 return await OfficeParser.parseDocx(file);
             }
-            if (ext === 'xlsx' || ext === 'xls') {
+            // XLSX / XLS
+            if ((ext === 'xlsx' || ext === 'xls') && typeof OfficeParser !== 'undefined') {
                 return await OfficeParser.parseExcel(file, ext);
             }
-            if (ext === 'pdf') {
+            // PDF
+            if (ext === 'pdf' && typeof PDFParser !== 'undefined') {
                 return await PDFParser.parse(file);
             }
-            if (ext === 'csv' || ext === 'tsv') {
+            // CSV / TSV
+            if ((ext === 'csv' || ext === 'tsv') && typeof CSVParser !== 'undefined') {
                 return await CSVParser.parse(file, ext);
             }
-            if (TextParser.isTextLike(ext) || ext === 'rtf') {
+            // 已知文本类型（走 TextParser）
+            if (typeof TextParser !== 'undefined' && (TextParser.isTextLike(ext) || ext === 'rtf')) {
                 return await TextParser.parse(file, ext);
             }
-            // 兜底：尝试当文本读
-            const r = await TextParser.parse(file, ext || 'txt');
-            r.meta.fallback = true;
-            return r;
         } catch (e) {
-            // 解析失败兜底
-            try {
-                const r = await TextParser.parse(file, ext || 'txt');
-                r.meta.fallback = true;
-                r.meta.parseError = e.message;
-                return r;
-            } catch (e2) {
-                throw new Error('无法解析此文件：' + e.message);
+            console.warn('[Parser] 专用解析失败，尝试当文本读:', e.message);
+        }
+
+        // 兜底：当文本读
+        try {
+            const text = await readTextSafe(file);
+            // 简单二进制检测：如果前 1KB 包含很多不可打印字符，认为是二进制
+            const sample = text.slice(0, 1024);
+            let binaryCount = 0;
+            for (let i = 0; i < sample.length; i++) {
+                const code = sample.charCodeAt(i);
+                if (code === 0 || (code < 32 && code !== 9 && code !== 10 && code !== 13)) {
+                    binaryCount++;
+                }
             }
+            if (binaryCount > sample.length * 0.1) {
+                throw new Error('此文件似乎是二进制格式，无法当作文本读取');
+            }
+            return {
+                type: 'text',
+                fileName: file.name,
+                text: text,
+                meta: { ext: ext, fallback: true },
+            };
+        } catch (e) {
+            throw new Error('无法解析此文件：' + e.message);
         }
     }
 
-    /* ---------- 多文件并发解析 ---------- */
     async function parseFiles(files, onProgress) {
         const results = [];
         const fileArr = Array.from(files);
@@ -145,3 +165,5 @@ const Parser = (function () {
         compressImage: compressImage,
     };
 })();
+
+window.Parser = Parser;
