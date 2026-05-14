@@ -695,3 +695,441 @@ document.addEventListener('visibilitychange', () => {
         if (setM && setM.classList.contains('show')) renderStorageInfo();
     }
 });
+/* ============================================================
+   ===== 第三批：附件 / 知识库 / 上传 / 拖拽 / 粘贴 =============
+   ============================================================ */
+
+/* ---------- 附件面板开关 ---------- */
+function togAtt() {
+    document.getElementById('attPan').classList.toggle('show');
+}
+
+/* ---------- "持续参考"开关 ---------- */
+function updAttCont() {
+    _attContinuous = document.getElementById('attCont').checked;
+}
+
+/* ---------- 按钮上传入口 ---------- */
+function onAtt(inputEl) {
+    Upload.fromInput(inputEl);
+}
+
+/* ---------- 处理上传文件（统一入口：来自按钮/拖拽/粘贴） ---------- */
+async function handleUploadedFiles(files) {
+    if (!files || !files.length) return;
+    const fileArr = Array.from(files);
+    toast('开始解析 ' + fileArr.length + ' 个文件...');
+
+    const results = await Parser.parseFiles(fileArr, (i, total, name) => {
+        // 进度提示（可选）
+    });
+
+    let okCount = 0, failCount = 0;
+    results.forEach(r => {
+        if (r.ok) {
+            _pendingAtts.push(r.result);
+            okCount++;
+        } else {
+            failCount++;
+            toast('❌ ' + r.file.name + '：' + r.error, 'er');
+        }
+    });
+
+    // 持续参考：复制到当前会话的知识库
+    if (_attContinuous && okCount > 0) {
+        const c = curChat();
+        if (c) {
+            if (!c.knowledgeBase) c.knowledgeBase = [];
+            results.forEach(r => {
+                if (r.ok) {
+                    c.knowledgeBase.push({
+                        id: gId(),
+                        name: r.result.fileName,
+                        type: r.result.type,
+                        text: r.result.text || '',
+                        dataUrl: r.result.dataUrl || null,
+                        meta: r.result.meta || {},
+                        addedAt: Date.now(),
+                    });
+                }
+            });
+            c.updatedAt = Date.now();
+            await saveNow();
+            renderKBList();
+        }
+    }
+
+    if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
+    renderAttList();
+    // 自动展开附件面板
+    if (okCount > 0) {
+        document.getElementById('attPan').classList.add('show');
+    }
+}
+
+/* ---------- 渲染待发送附件列表 ---------- */
+function renderAttList() {
+    const box = document.getElementById('attListBox');
+    const list = document.getElementById('attList');
+    const cnt = document.getElementById('attCount');
+    const btn = document.getElementById('attBtn');
+
+    if (!_pendingAtts.length) {
+        box.style.display = 'none';
+        btn.classList.remove('has');
+        return;
+    }
+    box.style.display = 'block';
+    cnt.textContent = '📎 ' + _pendingAtts.length + ' 个附件待发送';
+    btn.classList.add('has');
+
+    list.innerHTML = '';
+    _pendingAtts.forEach((a, idx) => {
+        const item = document.createElement('div');
+        item.className = 'att-item';
+
+        const icon = a.type === 'image' ? '🖼️' :
+                     a.type === 'table' ? '📊' :
+                     a.type === 'document' ? '📄' : '📝';
+
+        const nm = document.createElement('span');
+        nm.className = 'ai-nm';
+        nm.textContent = icon + ' ' + a.fileName;
+        item.appendChild(nm);
+
+        const sz = document.createElement('span');
+        sz.className = 'ai-sz';
+        if (a.type === 'image') {
+            sz.textContent = a.meta.sizeText || '';
+        } else {
+            sz.textContent = cntW(a.text) + ' 字';
+        }
+        item.appendChild(sz);
+
+        const rm = document.createElement('button');
+        rm.className = 'ai-rm';
+        rm.textContent = '×';
+        rm.title = '移除';
+        rm.onclick = () => {
+            _pendingAtts.splice(idx, 1);
+            renderAttList();
+        };
+        item.appendChild(rm);
+        list.appendChild(item);
+    });
+}
+
+function clrAtt() {
+    _pendingAtts = [];
+    renderAttList();
+}
+
+/* ---------- 知识库管理 ---------- */
+async function addKB(inputEl) {
+    if (!inputEl.files || !inputEl.files.length) return;
+    const c = curChat();
+    if (!c) { toast('请先创建会话', 'er'); return; }
+
+    toast('解析知识库文件...');
+    const results = await Parser.parseFiles(inputEl.files);
+    if (!c.knowledgeBase) c.knowledgeBase = [];
+    let ok = 0;
+    results.forEach(r => {
+        if (r.ok) {
+            c.knowledgeBase.push({
+                id: gId(),
+                name: r.result.fileName,
+                type: r.result.type,
+                text: r.result.text || '',
+                dataUrl: r.result.dataUrl || null,
+                meta: r.result.meta || {},
+                addedAt: Date.now(),
+            });
+            ok++;
+        } else {
+            toast('❌ ' + r.file.name + '：' + r.error, 'er');
+        }
+    });
+    if (ok > 0) {
+        c.updatedAt = Date.now();
+        await saveNow();
+        toast('✅ 已加入 ' + ok + ' 个知识库文件');
+    }
+    renderKBList();
+    inputEl.value = '';
+}
+
+function renderKBList() {
+    const wrap = document.getElementById('kbList');
+    if (!wrap) return;
+    const c = curChat();
+    if (!c || !c.knowledgeBase || !c.knowledgeBase.length) {
+        wrap.innerHTML = '<div style="font-size:11px;color:var(--text2)">（暂无知识库文件）</div>';
+        return;
+    }
+    wrap.innerHTML = '';
+    c.knowledgeBase.forEach((k, idx) => {
+        const item = document.createElement('div');
+        item.className = 'att-item';
+        item.style.marginBottom = '4px';
+
+        const icon = k.type === 'image' ? '🖼️' :
+                     k.type === 'table' ? '📊' :
+                     k.type === 'document' ? '📄' : '📝';
+
+        const nm = document.createElement('span');
+        nm.className = 'ai-nm';
+        nm.textContent = icon + ' ' + k.name;
+        item.appendChild(nm);
+
+        const sz = document.createElement('span');
+        sz.className = 'ai-sz';
+        sz.textContent = k.type === 'image' ? '图片' : (cntW(k.text || '') + ' 字');
+        item.appendChild(sz);
+
+        const rm = document.createElement('button');
+        rm.className = 'ai-rm';
+        rm.textContent = '×';
+        rm.title = '移除';
+        rm.onclick = async () => {
+            if (!confirm('从知识库移除 "' + k.name + '"？')) return;
+            c.knowledgeBase.splice(idx, 1);
+            c.updatedAt = Date.now();
+            await saveNow();
+            renderKBList();
+        };
+        item.appendChild(rm);
+        wrap.appendChild(item);
+    });
+}
+
+/* ---------- 重写 send（注入附件 / 知识库 / 多模态图片） ---------- */
+/* 把原 app.js 中的 send 函数替换为这一版 */
+async function send() {
+    if (_streamCtrl) {
+        _streamCtrl.abort();
+        return;
+    }
+
+    let c = curChat();
+    if (!c) { newChat(); c = curChat(); }
+
+    const inp = document.getElementById('uIn');
+    const text = (inp.value || '').trim();
+    const hasText = !!text;
+    const hasAtts = _pendingAtts.length > 0;
+    if (!hasText && !hasAtts) { toast('请输入内容或上传附件', 'er'); return; }
+
+    const profile = curProfile();
+    if (!profile || !profile.key) {
+        toast('请先在 ⚙️ 中配置引擎 API Key', 'er');
+        openM('set');
+        return;
+    }
+
+    // 拼装用户消息内容（区分纯文本 vs 多模态）
+    const userVisibleText = text || '(已上传 ' + _pendingAtts.length + ' 个附件)';
+    const attsForUser = _pendingAtts.slice();
+
+    // ---- 构建发送给 API 的消息 ----
+    // 文档/表格类附件 → 拼成纯文本注入
+    // 图片附件 → 多模态结构（仅 OpenAI/Claude 兼容；Gemini 自己有格式）
+    let attachedText = '';
+    const imageAtts = [];
+    attsForUser.forEach(a => {
+        if (a.type === 'image') {
+            imageAtts.push(a);
+        } else if (a.text) {
+            attachedText += '\n\n=== 📎 附件：' + a.fileName + ' ===\n' + a.text + '\n=== 附件结束 ===\n';
+        }
+    });
+
+    // 知识库
+    let kbText = '';
+    if (c.knowledgeBase && c.knowledgeBase.length) {
+        const kbImages = [];
+        c.knowledgeBase.forEach(k => {
+            if (k.type === 'image') {
+                kbImages.push(k);
+            } else if (k.text) {
+                kbText += '\n\n=== 📚 知识库：' + k.name + ' ===\n' + k.text + '\n=== 知识库结束 ===\n';
+            }
+        });
+        // 知识库图片也加入图片列表
+        kbImages.forEach(k => {
+            imageAtts.push({ fileName: k.name, dataUrl: k.dataUrl, type: 'image' });
+        });
+    }
+
+    const composedText = (kbText ? kbText + '\n' : '') + (attachedText ? attachedText + '\n' : '') + text;
+
+    // 推入用户消息（界面显示）
+    const userMsg = {
+        id: gId(),
+        role: 'user',
+        content: userVisibleText,
+        attachments: attsForUser.map(a => ({
+            name: a.fileName,
+            type: a.type,
+            ext: a.meta && a.meta.ext,
+        })),
+        _time: nowTime(),
+    };
+    c.messages.push(userMsg);
+
+    // 占位 assistant
+    const aiMsg = {
+        id: gId(),
+        role: 'assistant',
+        content: '',
+        _streaming: true,
+        _time: nowTime(),
+    };
+    c.messages.push(aiMsg);
+
+    if (c.title === '新对话' && c.messages.length <= 2) {
+        c.title = (text || attsForUser[0]?.fileName || '新对话').slice(0, 24);
+    }
+    c.updatedAt = Date.now();
+
+    // 清空输入与附件（除非持续参考已经把它们加入 KB）
+    inp.value = '';
+    aRsz(inp);
+    _pendingAtts = [];
+    renderAttList();
+
+    await saveNow();
+    renderMs();
+    renderSB();
+
+    // ---- 构造 sendMsgs ----
+    const sendMsgs = [];
+    if (c.systemPrompt && c.systemPrompt.trim()) {
+        sendMsgs.push({ role: 'system', content: c.systemPrompt });
+    }
+    // 历史消息（user 用 visible text；当前最后一条 user 用 composedText + 图片）
+    const lastUserIdx = c.messages.length - 2;
+    c.messages.forEach((m, idx) => {
+        if (m === aiMsg) return;
+        if (m._interrupted && !m.content) return;
+        if (idx === lastUserIdx && m.role === 'user') {
+            // 最后一条 user：注入附件文本 + 图片
+            if (imageAtts.length && (profile.type === 'openai')) {
+                // OpenAI 多模态格式
+                const parts = [];
+                if (composedText) parts.push({ type: 'text', text: composedText });
+                imageAtts.forEach(im => {
+                    parts.push({ type: 'image_url', image_url: { url: im.dataUrl } });
+                });
+                sendMsgs.push({ role: 'user', content: parts });
+            } else if (imageAtts.length && profile.type === 'claude') {
+                // Claude 多模态
+                const parts = [];
+                if (composedText) parts.push({ type: 'text', text: composedText });
+                imageAtts.forEach(im => {
+                    const m2 = (im.dataUrl || '').match(/^data:([^;]+);base64,(.+)$/);
+                    if (m2) {
+                        parts.push({
+                            type: 'image',
+                            source: { type: 'base64', media_type: m2[1], data: m2[2] },
+                        });
+                    }
+                });
+                sendMsgs.push({ role: 'user', content: parts });
+            } else {
+                // 纯文本（含 Gemini，多模态后续可扩展）
+                sendMsgs.push({ role: 'user', content: composedText || userVisibleText });
+            }
+        } else {
+            sendMsgs.push({ role: m.role, content: m.content });
+        }
+    });
+
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.classList.add('stop');
+    sendBtn.textContent = '■';
+
+    const area = document.getElementById('msgsArea');
+    const lastMsgEl = area.querySelector('.msg:last-child .bub');
+    if (!lastMsgEl) { console.error('bub not found'); return; }
+
+    const updater = UI.makeStreamUpdater(lastMsgEl, area);
+    let lastSaveTime = Date.now();
+    const SAVE_INTERVAL = 3000;
+
+    _streamCtrl = API.streamChat(profile, sendMsgs, c.params, {
+        onStart: () => {},
+        onDelta: (delta, full) => {
+            aiMsg.content = full;
+            updater(full);
+            if (Date.now() - lastSaveTime > SAVE_INTERVAL) {
+                lastSaveTime = Date.now();
+                scheduleSave();
+            }
+        },
+        onDone: async (full) => {
+            aiMsg.content = full;
+            aiMsg._streaming = false;
+            c.updatedAt = Date.now();
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            UI.fullRender(lastMsgEl, full);
+            await saveNow();
+            renderMs();
+            renderSB();
+        },
+        onAbort: async (full) => {
+            aiMsg.content = full;
+            aiMsg._streaming = false;
+            aiMsg._interrupted = true;
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            UI.fullRender(lastMsgEl, full || '_（已中断）_');
+            await saveNow();
+            renderMs();
+            toast('已停止');
+        },
+        onError: async (err) => {
+            console.error('[Send] 错误', err);
+            aiMsg.content = (aiMsg.content || '') + '\n\n❌ **错误**：' + err.message;
+            aiMsg._streaming = false;
+            aiMsg._interrupted = true;
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            UI.fullRender(lastMsgEl, aiMsg.content);
+            await saveNow();
+            toast('请求失败：' + err.message, 'er');
+        },
+    });
+}
+
+/* ---------- 在 openM('cs') 中渲染知识库列表 ---------- */
+/* 把原 openM 函数找到并修改：在 if (n === 'cs') renderCSForm(); 后面追加 renderKBList(); */
+const _origOpenM = openM;
+openM = function (n) {
+    _origOpenM(n);
+    if (n === 'cs') renderKBList();
+};
+
+/* ---------- 初始化上传系统（在 initApp 完成后调用） ---------- */
+function initUpload() {
+    Upload.onFiles(handleUploadedFiles);
+    Upload.init({
+        dropTarget: document.getElementById('msgsArea'),
+        dropMask: document.getElementById('dropMask'),
+        paste: true,
+    });
+    console.log('[Upload] 已就绪：按钮 / 拖拽 / 粘贴');
+}
+
+// 在 initApp 完成后挂载（追加到末尾自动执行）
+(function waitInitUpload() {
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(initUpload, 100);
+    } else {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(initUpload, 100));
+    }
+})();
