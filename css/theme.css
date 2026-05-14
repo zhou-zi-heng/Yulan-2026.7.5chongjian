@@ -37,17 +37,21 @@
 
 /* ===== 移动端适配增强 ===== */
 @media(max-width:768px){
-    :root{
-        --sb-w:280px;
-        --hdr:48px;
+    .att-pan{
+        position:fixed;
+        left:8px;
+        right:8px;
+        bottom:auto;
+        top:auto;
+        width:auto;
+        max-height:60vh;
+        overflow-y:auto;
+        /* 出现在输入框上方，距底部约 70px */
+        bottom:70px;
+        z-index:200;
     }
-    .md{max-width:96vw;max-height:88vh;border-radius:12px}
-    .md-h{padding:14px 16px 0}
-    .md-b{padding:12px 16px 16px}
-    .att-pan{width:calc(100vw - 32px);left:auto;right:0}
-    .hdr-acts button{font-size:14px;padding:6px}
-    .hdr-acts{gap:0}
 }
+
 
 /* ===== 触屏优化 ===== */
 @media(hover:none){
