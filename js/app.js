@@ -1130,3 +1130,216 @@ function initUpload() {
         document.addEventListener('DOMContentLoaded', () => setTimeout(initUpload, 100));
     }
 })();
+/* ============================================================
+   ===== 第四批：自动快照 / 导入导出 / 对话导出 =================
+   ============================================================ */
+
+/* ---------- 启动自动快照（在 initApp 之后调用） ---------- */
+function initSnapshot() {
+    Snapshot.startAuto(S.snapInterval || 5, () => S);
+}
+
+/* ---------- 重写 updSnapInterval（让设置实时生效） ---------- */
+updSnapInterval = function (v) {
+    S.snapInterval = parseInt(v, 10) || 0;
+    scheduleSave();
+    Snapshot.startAuto(S.snapInterval, () => S);
+    toast('快照间隔：' + (S.snapInterval ? S.snapInterval + ' 分钟' : '关闭'));
+};
+
+/* ---------- 导出全量快照 ---------- */
+eSnap = function () {
+    Snapshot.exportToFile(S);
+};
+
+/* ---------- 导入快照（兼容所有版本） ---------- */
+iSnap = async function (inputEl) {
+    if (!inputEl.files || !inputEl.files.length) return;
+    const file = inputEl.files[0];
+
+    // 询问模式
+    const mode = confirm(
+        '导入模式选择：\n\n' +
+        '✅ 确定 = 替换模式（清除现有数据，完全使用快照）\n' +
+        '❌ 取消 = 合并模式（保留现有 + 添加快照内容）\n\n' +
+        '建议：第一次导入或恢复备份选"确定"；' +
+        '从其他设备同步选"取消"。'
+    );
+    const importMode = mode ? 'replace' : 'merge';
+
+    try {
+        const { state: importedState, source } = await Snapshot.importFromFile(file, importMode);
+
+        let finalState;
+        if (importMode === 'replace') {
+            finalState = importedState;
+        } else {
+            finalState = Snapshot.mergeStates(S, importedState);
+        }
+
+        // 应用
+        S = finalState;
+        await saveNow();
+        await Snapshot.snapNow(S);
+        renderAll();
+
+        const chatCount = Object.keys(S.chats || {}).length;
+        toast('✅ 导入成功（' + source + '）：共 ' + chatCount + ' 个会话');
+        closeM('snap');
+    } catch (e) {
+        console.error('[Import]', e);
+        toast('导入失败：' + e.message, 'er');
+    }
+    inputEl.value = '';
+};
+
+/* ============================================================
+   ===== 对话导出（TXT / HTML / Word） ==========================
+   ============================================================ */
+
+let _exportMode = 'full';
+updExp = function () {
+    _exportMode = document.getElementById('expFmt').value;
+    updExpPreview();
+};
+
+function buildExportContent() {
+    const c = curChat();
+    if (!c || !c.messages || !c.messages.length) {
+        return { plain: '（无内容）', html: '<p>（无内容）</p>', title: '空对话' };
+    }
+
+    const title = c.title || '对话记录';
+    const isPure = _exportMode === 'pure';
+
+    let plain = '';
+    let html = '';
+
+    if (!isPure) {
+        plain = '【' + title + '】\n导出时间：' + new Date().toLocaleString() + '\n\n';
+        html = '<h1>' + esc(title) + '</h1><p style="color:#888;font-size:12px">导出时间：'
+             + esc(new Date().toLocaleString()) + '</p><hr>';
+    }
+
+    c.messages.forEach((m, idx) => {
+        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        if (isPure) {
+            // 纯享：仅 assistant 正文
+            if (m.role === 'assistant' && text) {
+                plain += text + '\n\n';
+                html += UI.renderMarkdown(text) + '<hr style="border:none;border-top:1px dashed #ccc;margin:24px 0">';
+            }
+        } else {
+            // 完整记录
+            const roleName = m.role === 'user' ? '👤 我' : (m.role === 'assistant' ? '🤖 AI' : '⚙️ 系统');
+            plain += '【' + roleName + '】' + (m._time ? ' ' + m._time : '') + '\n' + text + '\n\n';
+            html += '<div style="margin:18px 0;padding:12px 16px;background:'
+                  + (m.role === 'user' ? '#e3f2fd' : '#f5f5f5')
+                  + ';border-radius:8px"><strong>' + esc(roleName) + '</strong>'
+                  + (m._time ? ' <span style="color:#888;font-size:12px">' + esc(m._time) + '</span>' : '')
+                  + '<div style="margin-top:6px">'
+                  + (m.role === 'assistant' ? UI.renderMarkdown(text) : '<pre style="white-space:pre-wrap;font-family:inherit;margin:0">' + esc(text) + '</pre>')
+                  + '</div></div>';
+        }
+    });
+
+    return { plain: plain.trim(), html: html, title: title };
+}
+
+function updExpPreview() {
+    const ta = document.getElementById('expTA');
+    if (!ta) return;
+    const { plain } = buildExportContent();
+    ta.value = plain;
+}
+
+eTxt = function () {
+    const { plain, title } = buildExportContent();
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    dl(plain, (title || 'chat') + '-' + ts + '.txt', 'text/plain');
+    toast('✅ TXT 已导出');
+};
+
+eHtml = function () {
+    const { html, title } = buildExportContent();
+    const full = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'
+        + esc(title) + '</title>'
+        + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">'
+        + '<style>'
+        + 'body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;'
+        + 'max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}'
+        + 'pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px}'
+        + 'code{font-family:SF Mono,Consolas,monospace}'
+        + 'table{border-collapse:collapse;margin:12px 0}'
+        + 'th,td{border:1px solid #ddd;padding:6px 12px}'
+        + 'th{background:#f0f0f0}'
+        + 'blockquote{border-left:4px solid #667eea;padding-left:12px;color:#666;margin:8px 0}'
+        + 'img{max-width:100%}'
+        + '</style></head><body>' + html + '</body></html>';
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    dl(full, (title || 'chat') + '-' + ts + '.html', 'text/html');
+    toast('✅ HTML 已导出');
+};
+
+eDoc = function () {
+    const { html, title } = buildExportContent();
+    // Word 通过 .doc + HTML 头实现，Word/WPS 都能识别
+    const full = '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+        + 'xmlns:w="urn:schemas-microsoft-com:office:word" '
+        + 'xmlns="http://www.w3.org/TR/REC-html40">'
+        + '<head><meta charset="UTF-8"><title>' + esc(title) + '</title>'
+        + '<style>body{font-family:微软雅黑,Microsoft YaHei,Arial;line-height:1.7;font-size:14px}'
+        + 'pre{background:#f6f8fa;padding:8px;border:1px solid #ddd;font-family:Consolas,monospace}'
+        + 'table{border-collapse:collapse}th,td{border:1px solid #999;padding:4px 8px}'
+        + '</style></head><body>' + html + '</body></html>';
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    dl(full, (title || 'chat') + '-' + ts + '.doc', 'application/msword');
+    toast('✅ Word 已导出');
+};
+
+cpExp = function () {
+    const ta = document.getElementById('expTA');
+    if (!ta || !ta.value) { toast('无内容', 'er'); return; }
+    ta.select();
+    try {
+        document.execCommand('copy');
+        toast('✅ 已复制到剪贴板');
+    } catch (e) {
+        navigator.clipboard.writeText(ta.value).then(() => toast('✅ 已复制'));
+    }
+};
+
+/* ---------- 在打开导出弹窗时自动生成预览 ---------- */
+const _origOpenM2 = openM;
+openM = function (n) {
+    _origOpenM2(n);
+    if (n === 'exp') updExpPreview();
+};
+
+/* ---------- 启动时挂载快照 ---------- */
+(function waitInitSnapshot() {
+    function tryStart() {
+        if (typeof Snapshot !== 'undefined' && S) {
+            initSnapshot();
+            console.log('[Snapshot] 已挂载');
+        } else {
+            setTimeout(tryStart, 200);
+        }
+    }
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(tryStart, 500);
+    } else {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(tryStart, 500));
+    }
+})();
+
+/* ---------- 注册 Service Worker（PWA） ---------- */
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+            console.log('[PWA] Service Worker 已注册:', reg.scope);
+        }).catch(err => {
+            console.warn('[PWA] 注册失败:', err);
+        });
+    });
+}
