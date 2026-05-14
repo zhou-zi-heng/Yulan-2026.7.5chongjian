@@ -249,65 +249,9 @@
 <!-- 业务脚本（按依赖顺序加载，带版本号防缓存） -->
 <script src="js/utils.js?v=2.0.0"></script>
 <script src="js/storage.js?v=2.0.0"></script>
-
-<!-- 初始化占位（后续批次会替换为完整逻辑） -->
-<script>
-// 第一批：仅做存储层初始化测试
-(async function initPhase1(){
-    try {
-        await DB.init();
-        console.log('[Phase1] IndexedDB 初始化成功');
-
-        // 检测旧 localStorage 数据并迁移
-        const migrated = await DB.migrateFromLocalStorage();
-        if (migrated) {
-            console.log('[Phase1] 旧数据迁移完成');
-        }
-
-        // 申请持久化存储
-        await DB.requestPersistent();
-
-        // 输出存储信息
-        const info = await DB.getStorageInfo();
-        console.log('[Phase1] 存储信息:', info);
-
-        toast('✅ 飞凡AI 数据库就绪');
-    } catch (e) {
-        console.error('[Phase1] 初始化失败', e);
-        toast('数据库初始化失败: ' + e.message, 'er');
-    }
-})();
-
-// 占位函数（后续批次实现）
-function togSB(){document.getElementById('sb').classList.toggle('open');document.getElementById('sbOv').classList.toggle('show')}
-function openM(n){const m=document.getElementById('mo-'+n);if(m)m.classList.add('show')}
-function closeM(n){const m=document.getElementById('mo-'+n);if(m)m.classList.remove('show')}
-function newChat(){toast('待第二批实现','er')}
-function send(){toast('待第二批实现','er')}
-function renderSB(){}
-function updTitle(){}
-function pinC(){}
-function arcC(){}
-function clrC(){}
-function togTheme(){}
-function togAtt(){document.getElementById('attPan').classList.toggle('show')}
-function onAtt(){toast('待第三批实现','er')}
-function updAttCont(){}
-function clrAtt(){}
-function updSP(){}
-function addKB(){toast('待第三批实现','er')}
-function updSnapInterval(v){toast('快照间隔: '+v+' 分钟（待第四批生效）')}
-function updExp(){}
-function eTxt(){}
-function eHtml(){}
-function eDoc(){}
-function cpExp(){}
-function eSnap(){toast('待第四批实现','er')}
-function iSnap(){toast('待第四批实现','er')}
-function hKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}
-function aRsz(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,130)+'px'}
-function addEng(){}
-</script>
+<script src="js/api.js?v=2.0.0"></script>
+<script src="js/ui.js?v=2.0.0"></script>
+<script src="js/app.js?v=2.0.0"></script>
 
 </body>
 </html>
