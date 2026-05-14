@@ -1,6 +1,6 @@
 {
   "name": "飞凡AI对话界面",
-  "short_name": "飞凡AI",
+  "short_name": "飞凡AI对话",
   "description": "本地优先、流式对话、多引擎支持的 AI 对话界面",
   "start_url": "./",
   "scope": "./",
