@@ -1,5 +1,5 @@
-/* ===== 飞凡AI - 快照系统 (v2.3.3) ===== */
-/* 自动覆盖式快照 + 导入导出 + 全版本兼容 + 智能 key 保护 */
+/* ===== 飞凡AI - 快照系统 (v2.3.4) ===== */
+/* 自动覆盖式快照 + 导入导出 + 全版本兼容 + 智能 key 保护 + 分享对话 */
 
 const Snapshot = (function () {
 
@@ -56,13 +56,11 @@ const Snapshot = (function () {
     /* ---------- 导出快照（支持不带 key） ---------- */
     function exportToFile(state, options) {
         const opts = options || {};
-        const includeKey = opts.includeKey !== false; // 默认带 key
+        const includeKey = opts.includeKey !== false;
 
-        // 深拷贝以免影响原数据
         const data = JSON.parse(JSON.stringify(state));
 
         if (!includeKey) {
-            // 清空所有引擎的 key
             if (data.profiles) {
                 for (const id in data.profiles) {
                     if (data.profiles[id]) data.profiles[id].key = '';
@@ -212,13 +210,7 @@ const Snapshot = (function () {
         };
     }
 
-    /* ---------- 智能 key 保护：合并时保护本地已有 key ---------- */
-    /*
-        规则：
-        - 如果 incoming 引擎有 key（非空），用 incoming 的
-        - 如果 incoming 引擎 key 为空，但 current 同 ID 引擎有 key，保留 current 的 key
-        - 其他字段都用 incoming 的
-    */
+    /* ---------- 智能 key 保护 ---------- */
     function protectLocalKeys(incoming, current) {
         if (!incoming || !incoming.profiles || !current || !current.profiles) return incoming;
         const result = JSON.parse(JSON.stringify(incoming));
@@ -274,6 +266,122 @@ const Snapshot = (function () {
         return merged;
     }
 
+    /* ==========================================================
+       ===== 分享对话功能 (v2.3.4 新增) =========================
+       ========================================================== */
+
+    /* ---------- 分享导出：单个对话导出为可继续聊天的文件 ---------- */
+    function shareChat(chat, options) {
+        const opts = options || {};
+        if (!chat) {
+            toast('请先选择一个对话', 'er');
+            return;
+        }
+
+        // 深拷贝
+        const chatCopy = JSON.parse(JSON.stringify(chat));
+
+        // 清理流式状态
+        if (chatCopy.messages) {
+            chatCopy.messages.forEach(function (m) {
+                m._streaming = false;
+            });
+        }
+
+        // 是否包含知识库
+        if (!opts.includeKB) {
+            chatCopy.knowledgeBase = [];
+        }
+
+        const wrap = {
+            __feifan_share__: true,
+            version: APP_VERSION,
+            sharedAt: new Date().toISOString(),
+            sharedBy: opts.sharedBy || '',
+            chat: chatCopy,
+        };
+
+        const json = JSON.stringify(wrap, null, 2);
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        var safeName = (chat.title || 'chat').replace(/[^\w\u4e00-\u9fff-]/g, '_').slice(0, 30);
+        dl(json, safeName + '-' + ts + '.feifan-share.json', 'application/json');
+        toast('✅ 对话已导出为分享文件，对方拖入即可继续聊天');
+    }
+
+    /* ---------- 导入分享的对话 ---------- */
+    function importSharedChat(file) {
+        return new Promise(function (resolve, reject) {
+            var r = new FileReader();
+            r.onload = function (e) {
+                try {
+                    var raw = JSON.parse(e.target.result);
+
+                    // 检测是否为分享格式
+                    if (!raw.__feifan_share__ || !raw.chat) {
+                        reject(new Error('不是有效的分享对话文件'));
+                        return;
+                    }
+
+                    var chat = raw.chat;
+                    // 重新生成 ID，避免冲突
+                    chat.id = gId();
+                    chat.title = (chat.title || '分享的对话') + ' (分享)';
+                    chat.updatedAt = Date.now();
+                    chat.isPinned = false;
+                    chat.isArchived = false;
+
+                    // 确保消息格式完整
+                    if (chat.messages) {
+                        chat.messages.forEach(function (m) {
+                            if (!m.id) m.id = gId();
+                            m._streaming = false;
+                        });
+                    } else {
+                        chat.messages = [];
+                    }
+
+                    if (!chat.knowledgeBase) chat.knowledgeBase = [];
+                    if (!chat.systemPrompt) chat.systemPrompt = '';
+
+                    resolve({
+                        chat: chat,
+                        source: 'feifan-share-v' + (raw.version || '?'),
+                        sharedAt: raw.sharedAt,
+                        sharedBy: raw.sharedBy,
+                    });
+                } catch (err) {
+                    reject(new Error('解析分享文件失败：' + err.message));
+                }
+            };
+            r.onerror = function () { reject(new Error('文件读取失败')); };
+            r.readAsText(file, 'utf-8');
+        });
+    }
+
+    /* ---------- 检测文件是快照还是分享 ---------- */
+    function detectFileType(file) {
+        return new Promise(function (resolve) {
+            var r = new FileReader();
+            r.onload = function (e) {
+                try {
+                    var raw = JSON.parse(e.target.result);
+                    if (raw.__feifan_share__) {
+                        resolve('share');
+                    } else if (raw.__feifan_snapshot__ || raw.chats || raw.profiles || raw.conversations) {
+                        resolve('snapshot');
+                    } else {
+                        resolve('unknown');
+                    }
+                } catch (err) {
+                    resolve('unknown');
+                }
+            };
+            r.onerror = function () { resolve('unknown'); };
+            r.readAsText(file, 'utf-8');
+        });
+    }
+
+    /* ---------- 返回公开方法 ---------- */
     return {
         startAuto: startAuto,
         stopAuto: stopAuto,
@@ -283,6 +391,10 @@ const Snapshot = (function () {
         mergeStates: mergeStates,
         protectLocalKeys: protectLocalKeys,
         detectAndNormalize: detectAndNormalize,
+        // v2.3.4 新增：分享功能
+        shareChat: shareChat,
+        importSharedChat: importSharedChat,
+        detectFileType: detectFileType,
     };
 })();
 
