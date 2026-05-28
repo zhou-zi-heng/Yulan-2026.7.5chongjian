@@ -36,8 +36,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
     <!-- 本地样式 -->
-    <link rel="stylesheet" href="css/main.css?v=2.3.0">
-    <link rel="stylesheet" href="css/theme.css?v=2.3.0">
+    <link rel="stylesheet" href="css/main.css?v=2.3.4">
+    <link rel="stylesheet" href="css/theme.css?v=2.3.4">
 </head>
 <body>
 
@@ -75,6 +75,7 @@
             <div class="hdr-acts">
                 <button onclick="openM('cs')" title="会话设置">🎛️</button>
                 <button onclick="openM('exp')" title="导出">📥</button>
+                <button onclick="shareC()" title="分享对话（对方可继续聊天）">🔗</button>
                 <button onclick="pinC()" title="置顶" id="pinBtn">📌</button>
                 <button onclick="arcC()" title="归档">📦</button>
                 <button onclick="clrC()" title="清空">🗑️</button>
@@ -88,6 +89,7 @@
                 <div class="ico">🚀</div>
                 <p>开始新的对话吧</p>
                 <p style="font-size:12px;opacity:.6;margin-top:4px">支持拖拽 / 粘贴上传文档与图片</p>
+                <p style="font-size:11px;opacity:.5;margin-top:2px">💡 也可拖入 .feifan-share.json 导入分享的对话</p>
             </div>
         </div>
 
@@ -95,7 +97,7 @@
         <div class="drop-mask" id="dropMask">
             <div class="drop-mask-inner">
                 <div style="font-size:48px">📥</div>
-                <div style="font-size:16px;margin-top:8px">松开以上传文件</div>
+                <div style="font-size:16px;margin-top:8px">松开以上传文件或导入分享对话</div>
             </div>
         </div>
 
@@ -108,7 +110,6 @@
                         <div class="fg" style="margin-bottom:6px">
                             <label>上传文件（支持多选 / 拖拽 / 粘贴）</label>
                             <input type="file" id="attIn" multiple onchange="onAtt(this)">
-
                         </div>
                         <div class="pt">
                             <input type="checkbox" id="attCont" onchange="updAttCont()">
@@ -174,7 +175,6 @@
             <div class="fg">
                 <label>📚 全局知识库文件（支持多选）</label>
                 <input type="file" id="kbIn" multiple onchange="addKB(this)">
-
                 <div id="kbList" style="margin-top:8px"></div>
             </div>
 
@@ -255,18 +255,18 @@
 <div class="tc" id="tc"></div>
 
 <!-- 业务脚本 -->
-<script src="js/utils.js?v=2.3.0"></script>
-<script src="js/storage.js?v=2.3.0"></script>
-<script src="js/api.js?v=2.3.0"></script>
-<script src="js/ui.js?v=2.3.0"></script>
-<script src="js/parsers/text.js?v=2.3.0"></script>
-<script src="js/parsers/csv.js?v=2.3.0"></script>
-<script src="js/parsers/office.js?v=2.3.0"></script>
-<script src="js/parsers/pdf.js?v=2.3.0"></script>
-<script src="js/parser.js?v=2.3.0"></script>
-<script src="js/upload.js?v=2.3.0"></script>
-<script src="js/snapshot.js?v=2.3.0"></script>
-<script src="js/app.js?v=2.3.0"></script>
+<script src="js/utils.js?v=2.3.4"></script>
+<script src="js/storage.js?v=2.3.4"></script>
+<script src="js/api.js?v=2.3.4"></script>
+<script src="js/ui.js?v=2.3.4"></script>
+<script src="js/parsers/text.js?v=2.3.4"></script>
+<script src="js/parsers/csv.js?v=2.3.4"></script>
+<script src="js/parsers/office.js?v=2.3.4"></script>
+<script src="js/parsers/pdf.js?v=2.3.4"></script>
+<script src="js/parser.js?v=2.3.4"></script>
+<script src="js/upload.js?v=2.3.4"></script>
+<script src="js/snapshot.js?v=2.3.4"></script>
+<script src="js/app.js?v=2.3.4"></script>
 
 </body>
 </html>
