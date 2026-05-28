@@ -855,6 +855,8 @@ function onAtt(inputEl) {
     Upload.fromInput(inputEl);
 }
 
+// 修改 app.js 中 handleUploadedFiles 函数的末尾部分
+
 async function handleUploadedFiles(files) {
     if (!files || !files.length) return;
     const fileArr = Array.from(files);
@@ -894,6 +896,18 @@ async function handleUploadedFiles(files) {
             await saveNow();
             renderKBList();
         }
+    }
+
+    if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
+    renderAttList();
+    // ★ 修复：拖拽/粘贴上传后不再强制打开附件面板
+    // 附件列表已通过 renderAttList() 更新，attBtn 上会有 .has 标记提示用户
+    // 删除原来的：
+    // if (okCount > 0) {
+    //     document.getElementById('attPan').classList.add('show');
+    // }
+}
+
     }
 
     if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
