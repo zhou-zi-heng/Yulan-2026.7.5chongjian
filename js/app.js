@@ -1,5 +1,6 @@
-/* ===== 飞凡AI - 主入口 (v2.3.2) ===== */
+/* ===== 飞凡AI - 主入口 (v2.3.4) ===== */
 /* 全局当前引擎模式 - 所有会话实时跟随设置 */
+/* v2.3.4: 修复拖拽上传面板bug + 分享对话 + 智能拖拽识别 */
 
 /* ============================================================
    ===== 全局状态 ==============================================
@@ -92,7 +93,6 @@ function curChat() {
     if (!S.currentChatId) return null;
     return S.chats[S.currentChatId] || null;
 }
-/* ✅ 全局当前引擎模式：所有会话实时跟随 S.currentEngId */
 function curProfile() {
     const eid = S.currentEngId;
     return S.profiles[eid] || S.profiles[Object.keys(S.profiles)[0]];
@@ -188,6 +188,21 @@ function clrC() {
     c.updatedAt = Date.now();
     scheduleSave();
     renderMs();
+}
+
+/* ============================================================
+   ===== 分享对话 (v2.3.4 新增) ================================
+   ============================================================ */
+function shareC() {
+    const c = curChat();
+    if (!c) { toast('请先选择一个对话', 'er'); return; }
+    if (!c.messages || !c.messages.length) { toast('对话为空，无法分享', 'er'); return; }
+
+    const includeKB = c.knowledgeBase && c.knowledgeBase.length > 0
+        ? confirm('是否包含知识库文件？\n\n✅ 确定 = 包含（对方可看到全部上下文）\n❌ 取消 = 不包含（文件更小）')
+        : false;
+
+    Snapshot.shareChat(c, { includeKB: includeKB });
 }
 
 /* ============================================================
@@ -855,14 +870,55 @@ function onAtt(inputEl) {
     Upload.fromInput(inputEl);
 }
 
-// 修改 app.js 中 handleUploadedFiles 函数的末尾部分
-
 async function handleUploadedFiles(files) {
     if (!files || !files.length) return;
     const fileArr = Array.from(files);
-    toast('开始解析 ' + fileArr.length + ' 个文件...');
 
-    const results = await Parser.parseFiles(fileArr);
+    /* ★ v2.3.4：智能检测 JSON 文件 - 识别分享对话 / 快照 */
+    const jsonFiles = fileArr.filter(f => f.name.endsWith('.json'));
+    const otherFiles = fileArr.filter(f => !f.name.endsWith('.json'));
+
+    for (const jf of jsonFiles) {
+        try {
+            const fileType = await Snapshot.detectFileType(jf);
+
+            if (fileType === 'share') {
+                // 分享对话文件 → 自动导入并切换
+                try {
+                    const result = await Snapshot.importSharedChat(jf);
+                    const chat = result.chat;
+                    S.chats[chat.id] = chat;
+                    S.chatOrder.unshift(chat.id);
+                    S.currentChatId = chat.id;
+                    await saveNow();
+                    renderAll();
+                    const byText = result.sharedBy ? '（来自: ' + result.sharedBy + '）' : '';
+                    toast('✅ 已导入分享对话' + byText + '，可继续聊天！');
+                } catch (e) {
+                    toast('❌ 导入分享失败：' + e.message, 'er');
+                }
+                continue;
+            }
+
+            if (fileType === 'snapshot') {
+                // 快照文件 → 提示用户通过快照面板导入
+                toast('📦 检测到快照文件，请通过侧边栏 → 📦 快照迁移 导入', 'er');
+                continue;
+            }
+
+            // 未知 JSON → 当普通附件处理
+            otherFiles.push(jf);
+        } catch (e) {
+            // detectFileType 出错 → 当普通附件
+            otherFiles.push(jf);
+        }
+    }
+
+    // 处理普通文件（原逻辑）
+    if (!otherFiles.length) return;
+
+    toast('开始解析 ' + otherFiles.length + ' 个文件...');
+    const results = await Parser.parseFiles(otherFiles);
 
     let okCount = 0, failCount = 0;
     results.forEach(r => {
@@ -900,21 +956,9 @@ async function handleUploadedFiles(files) {
 
     if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
     renderAttList();
-    // ★ 修复：拖拽/粘贴上传后不再强制打开附件面板
-    // 附件列表已通过 renderAttList() 更新，attBtn 上会有 .has 标记提示用户
-    // 删除原来的：
-    // if (okCount > 0) {
-    //     document.getElementById('attPan').classList.add('show');
-    // }
-}
 
-    }
-
-    if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
-    renderAttList();
-    if (okCount > 0) {
-        document.getElementById('attPan').classList.add('show');
-    }
+    /* ★ v2.3.4 Bug修复：拖拽/粘贴上传后不再强制打开附件面板
+       附件已通过 renderAttList() 更新，attBtn 上的 .has 高亮会提示用户有待发送附件 */
 }
 
 function renderAttList() {
@@ -1041,10 +1085,9 @@ function renderKBList() {
 }
 
 /* ============================================================
-   ===== 快照 / 导入导出 (v2.3.3) =============================
+   ===== 快照 / 导入导出 (v2.3.4) =============================
    ============================================================ */
 
-/* 导出：弹一个简单的选择框 */
 function eSnap() {
     const includeKey = confirm(
         '导出快照\n\n' +
@@ -1055,7 +1098,6 @@ function eSnap() {
     Snapshot.exportToFile(S, { includeKey: includeKey });
 }
 
-/* 导入：自动智能保护本地 Key */
 async function iSnap(inputEl) {
     if (!inputEl.files || !inputEl.files.length) return;
     const file = inputEl.files[0];
@@ -1072,7 +1114,6 @@ async function iSnap(inputEl) {
 
         let finalState;
         if (mode) {
-            // 替换模式：先把空 key 用本地 key 填上
             const { state: protectedState, protectedCount } =
                 Snapshot.protectLocalKeys(importedState, S);
             finalState = protectedState;
@@ -1080,7 +1121,6 @@ async function iSnap(inputEl) {
                 toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
             }
         } else {
-            // 合并模式：先 protectLocalKeys，再 merge
             const { state: protectedState, protectedCount } =
                 Snapshot.protectLocalKeys(importedState, S);
             finalState = Snapshot.mergeStates(S, protectedState);
@@ -1089,7 +1129,6 @@ async function iSnap(inputEl) {
             }
         }
 
-        // 应用
         S = finalState;
         if (!S.profiles[S.currentEngId]) {
             S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
@@ -1226,12 +1265,14 @@ async function initApp() {
                 newChat();
                 initUpload();
                 initSnapshot();
+                checkURLImport();
                 return;
             }
         }
         renderAll();
         initUpload();
         initSnapshot();
+        checkURLImport();
         toast('✅ 飞凡AI 就绪');
     } catch (e) {
         console.error('[InitApp]', e);
@@ -1254,6 +1295,56 @@ function initSnapshot() {
     if (typeof Snapshot === 'undefined') return;
     Snapshot.startAuto(S.snapInterval || 5, () => S);
     console.log('[Snapshot] 已挂载');
+}
+
+/* ============================================================
+   ===== URL 参数导入分享对话 (v2.3.4) =========================
+   ============================================================ */
+async function checkURLImport() {
+    const params = new URLSearchParams(window.location.search);
+    const shareUrl = params.get('share');
+    if (!shareUrl) return;
+
+    try {
+        toast('正在加载分享对话...');
+        const resp = await fetch(shareUrl);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const raw = await resp.json();
+
+        if (raw.__feifan_share__ && raw.chat) {
+            const chat = raw.chat;
+            chat.id = gId();
+            chat.title = (chat.title || '分享的对话') + ' (分享)';
+            chat.updatedAt = Date.now();
+            if (chat.messages) {
+                chat.messages.forEach(function (m) {
+                    if (!m.id) m.id = gId();
+                    m._streaming = false;
+                });
+            } else {
+                chat.messages = [];
+            }
+            if (!chat.knowledgeBase) chat.knowledgeBase = [];
+            if (!chat.systemPrompt) chat.systemPrompt = '';
+
+            S.chats[chat.id] = chat;
+            S.chatOrder.unshift(chat.id);
+            S.currentChatId = chat.id;
+            await saveNow();
+            renderAll();
+
+            const byText = raw.sharedBy ? '（来自: ' + raw.sharedBy + '）' : '';
+            toast('✅ 已导入分享对话' + byText + '，可继续聊天！');
+
+            // 清除 URL 参数，避免刷新重复导入
+            window.history.replaceState({}, '', window.location.pathname);
+        } else {
+            toast('分享链接内容格式无效', 'er');
+        }
+    } catch (e) {
+        console.error('[URLImport]', e);
+        toast('分享链接加载失败：' + e.message, 'er');
+    }
 }
 
 if (document.readyState === 'loading') {
