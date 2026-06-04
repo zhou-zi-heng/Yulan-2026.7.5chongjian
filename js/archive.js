@@ -1,7 +1,8 @@
-/* ===== 飞凡AI - 局域网自动存档引擎 (v2.3.6) ===== */
+/* ===== 飞凡AI - 局域网自动存档引擎 (v2.3.7) ===== */
 /* File System Access API：用户选定共享目录后，按设定间隔 + AI回复后防抖，
    把"有变动的对话"以 [标题__用户名__ID短码].html + .feifan-share.json 双份写入。
-   同名覆盖=排重=永远最新版。仅 Chrome/Edge + https 可用，不支持则静默禁用。 */
+   同名覆盖=排重=永远最新版。仅 Chrome/Edge + https 可用，不支持则静默禁用。
+   v2.3.7: 新增打开页面主动授权提示（needsAuth / requestAuthNow）。 */
 
 const Archive = (function () {
 
@@ -11,17 +12,21 @@ const Archive = (function () {
     let _intervalTimer = null;
     let _getStateFn = null;
     let _buildHtmlFn = null;
-    let _archiveSigs = {};        // { chatId: 上次存档的内容指纹 }
+    let _archiveSigs = {};
     let _permissionOK = false;
-    let _debounceTimer = null;    // 回复后防抖计时器
-    let _intervalMin = 10;        // 存档间隔（分钟）
-    let _debounceMin = 1;         // 回复后防抖（分钟）
+    let _debounceTimer = null;
+    let _intervalMin = 10;
+    let _debounceMin = 1;
 
-    /* ---------- 状态判断 ---------- */
     function isEnabled() { return SUPPORTS_FSA && !!_dirHandle; }
     function isSupported() { return SUPPORTS_FSA; }
+    function isAuthorized() { return _permissionOK; }
 
-    /* ---------- 文件名安全化 ---------- */
+    /* 是否需要主动提示授权：已设目录 + 尚未授权 */
+    function needsAuth() {
+        return isEnabled() && !_permissionOK;
+    }
+
     function _safe(str) {
         return String(str || '')
             .replace(/[\\/:*?"<>|]/g, '_')
@@ -38,9 +43,6 @@ const Archive = (function () {
         return title + '__' + user + '__' + idShort;
     }
 
-    /* ---------- 内容指纹（双保险检测核心） ---------- */
-    /* 不只靠 updatedAt，再叠加真实内容指纹，杜绝"内容变了但 updatedAt 没变"的漏存，
-       同时避免"置顶等无实质变化"的多余重写。指纹轻量，几乎零开销。 */
     function _fingerprint(chat) {
         const msgs = chat.messages || [];
         let lastContent = '';
@@ -48,7 +50,6 @@ const Archive = (function () {
             const last = msgs[msgs.length - 1];
             lastContent = typeof last.content === 'string' ? last.content : JSON.stringify(last.content || '');
         }
-        // 总字数（粗略）
         let totalLen = 0;
         for (let i = 0; i < msgs.length; i++) {
             const ct = typeof msgs[i].content === 'string' ? msgs[i].content : '';
@@ -59,7 +60,7 @@ const Archive = (function () {
             (chat.title || ''),
             totalLen,
             lastContent.length,
-            lastContent.slice(-60),   // 最后一条消息结尾60字
+            lastContent.slice(-60),
             (chat.systemPrompt || '').length,
             (chat.knowledgeBase || []).length,
         ].join('|');
@@ -79,6 +80,29 @@ const Archive = (function () {
             console.warn('[Archive] 权限检查失败', e);
         }
         return false;
+    }
+
+    /* 仅查询权限（不弹窗），用于判断 needsAuth */
+    async function _queryPermissionOnly() {
+        if (!_dirHandle) return false;
+        try {
+            const r = await _dirHandle.queryPermission({ mode: 'readwrite' });
+            return r === 'granted';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /* ★ 主动请求授权（用户点大按钮触发，必须在用户手势中调用才会弹窗） */
+    async function requestAuthNow() {
+        if (!isEnabled()) return false;
+        const ok = await _verifyPermission(_dirHandle, true);
+        _permissionOK = ok;
+        if (ok) {
+            startTimer();
+            console.log('[Archive] 已授权写入');
+        }
+        return ok;
     }
 
     /* ==========================================================
@@ -112,8 +136,9 @@ const Archive = (function () {
             const handle = await DB.loadDirHandle();
             if (handle) {
                 _dirHandle = handle;
-                _permissionOK = false;
-                console.log('[Archive] 已恢复存档目录句柄:', handle.name);
+                // 重开页面后，先查询是否已有权限（不弹窗）
+                _permissionOK = await _queryPermissionOnly();
+                console.log('[Archive] 已恢复存档目录:', handle.name, '已授权:', _permissionOK);
                 return true;
             }
         } catch (e) {
@@ -145,12 +170,10 @@ const Archive = (function () {
 
     async function _archiveOne(chat, userName) {
         const base = _baseName(chat, userName);
-        // HTML
         let html = '';
         try { html = _buildHtmlFn ? _buildHtmlFn(chat) : ''; }
         catch (e) { console.warn('[Archive] 生成 HTML 失败', e); }
         if (html) await _writeFile(base + '.html', html);
-        // JSON（明文，可续聊）
         try {
             const payload = Snapshot._buildSharePayload(chat, { includeKB: true, sharedBy: userName || '' });
             await _writeFile(base + '.feifan-share.json', JSON.stringify(payload, null, 2));
@@ -160,7 +183,7 @@ const Archive = (function () {
     }
 
     /* ==========================================================
-       ===== 存档核心（增量 + 双保险检测） ======================
+       ===== 存档核心 ===========================================
        ========================================================== */
     async function archiveAll(opts) {
         opts = opts || {};
@@ -185,7 +208,6 @@ const Archive = (function () {
             const chat = S.chats[cid];
             if (!chat || !chat.messages || !chat.messages.length) { skipped++; continue; }
 
-            // ★ 双保险：内容指纹。指纹没变 → 跳过（指纹已隐含 updatedAt 相关的内容变化）
             const sig = _fingerprint(chat);
             if (_archiveSigs[cid] === sig) { skipped++; continue; }
 
@@ -221,7 +243,6 @@ const Archive = (function () {
     /* ==========================================================
        ===== 回复后防抖落盘 ======================================
        ========================================================== */
-    /* AI 回复完成时调用。连续聊天会不断重置计时，停笔满 _debounceMin 分钟后落盘一次。 */
     function notifyActivity() {
         if (!isEnabled()) return;
         if (_debounceTimer) clearTimeout(_debounceTimer);
@@ -232,7 +253,7 @@ const Archive = (function () {
     }
 
     /* ==========================================================
-       ===== 定时器（间隔可配置） ================================
+       ===== 定时器 =============================================
        ========================================================== */
     function startTimer() {
         stopTimer();
@@ -248,27 +269,20 @@ const Archive = (function () {
         if (_intervalTimer) { clearInterval(_intervalTimer); _intervalTimer = null; }
     }
 
-    /* 设置间隔（分钟）。0=关闭定时（但回复后防抖仍生效） */
     function setInterval_(min) {
         _intervalMin = parseInt(min, 10) || 0;
         startTimer();
     }
     function getInterval() { return _intervalMin; }
 
-    /* ==========================================================
-       ===== 生命周期：切后台存一次 =============================
-       ========================================================== */
     function _bindLifecycle() {
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden && isEnabled()) {
+            if (document.hidden && isEnabled() && _permissionOK) {
                 archiveAll({ silent: true });
             }
         });
     }
 
-    /* ==========================================================
-       ===== 初始化 =============================================
-       ========================================================== */
     async function init(config) {
         config = config || {};
         _getStateFn = config.getState;
@@ -281,7 +295,6 @@ const Archive = (function () {
             return;
         }
 
-        // 恢复指纹记录
         try {
             const s = await DB.getSetting('archive_sigs', null);
             if (s && typeof s === 'object') _archiveSigs = s;
@@ -289,11 +302,13 @@ const Archive = (function () {
 
         await restoreDir();
 
-        if (isEnabled()) {
+        if (isEnabled() && _permissionOK) {
             startTimer();
-            console.log('[Archive] 已就绪（目录：' + getDirName() + '，间隔 ' + _intervalMin + ' 分钟）');
+            console.log('[Archive] 已就绪并已授权（目录：' + getDirName() + '）');
+        } else if (isEnabled()) {
+            console.log('[Archive] 已设目录但需授权');
         } else {
-            console.log('[Archive] 未设置存档目录，待用户配置');
+            console.log('[Archive] 未设置存档目录');
         }
 
         _bindLifecycle();
@@ -303,6 +318,9 @@ const Archive = (function () {
         init: init,
         isSupported: isSupported,
         isEnabled: isEnabled,
+        isAuthorized: isAuthorized,
+        needsAuth: needsAuth,
+        requestAuthNow: requestAuthNow,
         chooseDir: chooseDir,
         clearDir: clearDir,
         getDirName: getDirName,
