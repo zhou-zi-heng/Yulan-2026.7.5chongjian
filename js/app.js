@@ -1,5 +1,5 @@
-/* ===== 飞凡AI - 主入口 (v2.3.6) ===== */
-/* v2.3.6: 存档间隔可配置 + 回复后防抖存档 + 内容指纹检测 */
+/* ===== 飞凡AI - 主入口 (v2.3.7) ===== */
+/* v2.3.7: 存档间隔可配置 + 回复后防抖存档 + 内容指纹检测 */
 
 /* ============================================================
    ===== 全局状态 ==============================================
@@ -13,7 +13,7 @@ let S = {
     theme: 'light',
     snapInterval: 5,
     userName: '',
-    archiveInterval: 10,   // ★ v2.3.6 存档间隔（分钟）
+    archiveInterval: 10,   // ★ v2.3.7 存档间隔（分钟）
 };
 
 let _saveTimer = null;
@@ -766,7 +766,7 @@ async function send() {
             await saveNow();
             renderMs();
             renderSB();
-            // ★ v2.3.6：AI 回复完成 → 触发存档防抖（停笔1分钟后落盘）
+            // ★ v2.3.7：AI 回复完成 → 触发存档防抖（停笔1分钟后落盘）
             if (typeof Archive !== 'undefined') Archive.notifyActivity();
         },
         onAbort: async (full) => {
