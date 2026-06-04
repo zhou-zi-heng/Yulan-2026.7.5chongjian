@@ -1220,6 +1220,7 @@ async function initApp() {
         initSnapshot();
         await initArchive();
         checkURLImport();
+        maybePromptAuth();          // ★ v2.3.7 主动检测授权
         toast('✅ 飞凡AI 就绪');
     } catch (e) {
         console.error('[InitApp]', e);
@@ -1253,6 +1254,43 @@ async function initArchive() {
         debounceMin: 1,
     });
     console.log('[Archive] 已挂载');
+}
+/* ============================================================
+   ===== v2.3.7 存档授权提示 ==================================
+   ============================================================ */
+function maybePromptAuth() {
+    if (typeof Archive === 'undefined') return;
+    // 已设目录但未授权 → 弹醒目提示
+    if (Archive.needsAuth()) {
+        showAuthModal();
+    }
+}
+
+function showAuthModal() {
+    const m = document.getElementById('mo-auth');
+    if (!m) return;
+    const nameEl = document.getElementById('authDirName');
+    if (nameEl) nameEl.textContent = Archive.getDirName() || '已设定目录';
+    m.classList.add('show');
+}
+
+function closeAuthModal() {
+    const m = document.getElementById('mo-auth');
+    if (m) m.classList.remove('show');
+}
+
+async function doAuthNow() {
+    if (typeof Archive === 'undefined') return;
+    const ok = await Archive.requestAuthNow();
+    if (ok) {
+        closeAuthModal();
+        toast('✅ 存档已授权，本次将自动保存');
+        renderArchiveInfo();
+        // 顺手存一次当前进度
+        Archive.archiveAll({ silent: true });
+    } else {
+        toast('授权未通过，可稍后在 ⚙️ 中重试', 'er');
+    }
 }
 
 /* ============================================================
