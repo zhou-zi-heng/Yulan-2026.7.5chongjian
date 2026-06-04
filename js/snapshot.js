@@ -1,10 +1,19 @@
-/* ===== 飞凡AI - 快照系统 (v2.3.4) ===== */
-/* 自动覆盖式快照 + 导入导出 + 全版本兼容 + 智能 key 保护 + 分享对话 */
+/* ===== 飞凡AI - 快照系统 (v2.3.5) ===== */
+/* 自动覆盖式快照 + 导入导出 + 全版本兼容 + 智能 key 保护 + 加密分享对话 */
 
 const Snapshot = (function () {
 
     let _autoTimer = null;
     let _lastSnapHash = '';
+
+    /* ==========================================================
+       ===== 加密相关常量 =======================================
+       ========================================================== */
+    // 内置应用密钥（无感层）。普通人扒不到，达成"外人打开是乱码"的目标。
+    // ⚠️ 如需更高安全，分享时叠加用户口令（见 shareChat 的 password 参数）。
+    const APP_SECRET = 'FeiFanAI-2026-Sx9#kQ2$mZ7&pL4!vR8@nW3^bT6*cY1%hG5';
+    const PBKDF2_ITERATIONS = 100000;
+    const SUPPORTS_CRYPTO = !!(window.crypto && window.crypto.subtle);
 
     function quickHash(obj) {
         try {
@@ -193,6 +202,8 @@ const Snapshot = (function () {
         n.currentEngId = old.currentEngId || (Object.keys(n.profiles)[0] || 'zenmux');
         n.theme = old.theme || 'light';
         n.snapInterval = (old.snapInterval !== undefined) ? old.snapInterval : 5;
+        // ★ 保留用户名（如果旧状态里有）
+        if (old.userName) n.userName = old.userName;
 
         return n;
     }
@@ -267,88 +278,212 @@ const Snapshot = (function () {
     }
 
     /* ==========================================================
-       ===== 分享对话功能 (v2.3.4 新增) =========================
+       ===== WebCrypto 加密工具 (v2.3.5) ========================
        ========================================================== */
 
-    /* ---------- 分享导出：单个对话导出为可继续聊天的文件 ---------- */
-    function shareChat(chat, options) {
-        const opts = options || {};
-        if (!chat) {
-            toast('请先选择一个对话', 'er');
-            return;
+    // ArrayBuffer <-> Base64
+    function _ab2b64(buf) {
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    }
+    function _b642ab(b64) {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes.buffer;
+    }
+
+    // 从口令字符串派生 AES-GCM 密钥
+    async function _deriveKey(passphrase, salt) {
+        const enc = new TextEncoder();
+        const baseKey = await crypto.subtle.importKey(
+            'raw', enc.encode(passphrase),
+            { name: 'PBKDF2' }, false, ['deriveKey']
+        );
+        return crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt: salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            false, ['encrypt', 'decrypt']
+        );
+    }
+
+    /* ---------- 加密分享数据 ---------- */
+    // password: 可选用户口令（叠加在应用密钥之上）
+    async function encryptShareData(plainObj, password) {
+        if (!SUPPORTS_CRYPTO) throw new Error('当前浏览器不支持加密（WebCrypto）');
+
+        const json = JSON.stringify(plainObj);
+        const enc = new TextEncoder();
+
+        // 组合口令：应用密钥 +（用户口令）
+        const passphrase = APP_SECRET + (password ? ('::' + password) : '');
+
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const key = await _deriveKey(passphrase, salt);
+
+        const cipherBuf = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv },
+            key,
+            enc.encode(json)
+        );
+
+        return {
+            __feifan_enc__: true,
+            version: APP_VERSION,
+            alg: 'AES-GCM',
+            hasPassword: !!password,
+            salt: _ab2b64(salt),
+            iv: _ab2b64(iv),
+            cipher: _ab2b64(cipherBuf),
+            encryptedAt: new Date().toISOString(),
+        };
+    }
+
+    /* ---------- 解密分享数据 ---------- */
+    async function decryptShareData(encObj, password) {
+        if (!SUPPORTS_CRYPTO) throw new Error('当前浏览器不支持解密（WebCrypto）');
+        if (!encObj || !encObj.__feifan_enc__) throw new Error('不是加密分享文件');
+
+        const passphrase = APP_SECRET + (password ? ('::' + password) : '');
+        const salt = new Uint8Array(_b642ab(encObj.salt));
+        const iv = new Uint8Array(_b642ab(encObj.iv));
+        const cipherBuf = _b642ab(encObj.cipher);
+
+        const key = await _deriveKey(passphrase, salt);
+
+        let plainBuf;
+        try {
+            plainBuf = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: iv },
+                key,
+                cipherBuf
+            );
+        } catch (e) {
+            // 解密失败 = 口令错误或文件损坏
+            throw new Error(encObj.hasPassword ? '口令错误或文件损坏' : '文件损坏或非本应用生成');
         }
 
-        // 深拷贝
+        const json = new TextDecoder().decode(plainBuf);
+        return JSON.parse(json);
+    }
+
+    /* ==========================================================
+       ===== 分享对话功能 (v2.3.5：支持加密) ====================
+       ========================================================== */
+
+    /* ---------- 构建分享 payload（明文对象） ---------- */
+    function _buildSharePayload(chat, opts) {
         const chatCopy = JSON.parse(JSON.stringify(chat));
-
-        // 清理流式状态
         if (chatCopy.messages) {
-            chatCopy.messages.forEach(function (m) {
-                m._streaming = false;
-            });
+            chatCopy.messages.forEach(function (m) { m._streaming = false; });
         }
+        if (!opts.includeKB) chatCopy.knowledgeBase = [];
 
-        // 是否包含知识库
-        if (!opts.includeKB) {
-            chatCopy.knowledgeBase = [];
-        }
-
-        const wrap = {
+        return {
             __feifan_share__: true,
             version: APP_VERSION,
             sharedAt: new Date().toISOString(),
             sharedBy: opts.sharedBy || '',
             chat: chatCopy,
         };
-
-        const json = JSON.stringify(wrap, null, 2);
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        var safeName = (chat.title || 'chat').replace(/[^\w\u4e00-\u9fff-]/g, '_').slice(0, 30);
-        dl(json, safeName + '-' + ts + '.feifan-share.json', 'application/json');
-        toast('✅ 对话已导出为分享文件，对方拖入即可继续聊天');
     }
 
-    /* ---------- 导入分享的对话 ---------- */
-    function importSharedChat(file) {
+    /* ---------- 分享导出（加密 / 明文） ---------- */
+    // options: { includeKB, sharedBy, encrypt(默认true), password(可选) }
+    async function shareChat(chat, options) {
+        const opts = options || {};
+        if (!chat) { toast('请先选择一个对话', 'er'); return; }
+
+        const payload = _buildSharePayload(chat, opts);
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const safeName = (chat.title || 'chat').replace(/[^\w\u4e00-\u9fff-]/g, '_').slice(0, 30);
+
+        const doEncrypt = opts.encrypt !== false; // 默认加密
+
+        if (doEncrypt && SUPPORTS_CRYPTO) {
+            try {
+                const encObj = await encryptShareData(payload, opts.password || '');
+                const json = JSON.stringify(encObj, null, 2);
+                dl(json, safeName + '-' + ts + '.feifan-enc.json', 'application/json');
+                toast(opts.password
+                    ? '✅ 已导出加密分享（含口令），对方需输入口令打开'
+                    : '✅ 已导出加密分享，仅飞凡AI用户可打开');
+                return;
+            } catch (e) {
+                console.error('[shareChat] 加密失败，降级明文', e);
+                toast('加密失败，已降级为明文分享：' + e.message, 'er');
+            }
+        }
+
+        // 明文降级
+        const json = JSON.stringify(payload, null, 2);
+        dl(json, safeName + '-' + ts + '.feifan-share.json', 'application/json');
+        toast('✅ 对话已导出为分享文件（明文）');
+    }
+
+    /* ---------- 从已解析对象导入分享（明文/加密统一入口） ---------- */
+    // raw: 已 JSON.parse 的对象；password: 解密口令（如需要）
+    async function normalizeSharedObject(raw, password) {
+        let payload = raw;
+
+        // 加密文件 → 先解密
+        if (raw && raw.__feifan_enc__) {
+            payload = await decryptShareData(raw, password || '');
+        }
+
+        if (!payload || !payload.__feifan_share__ || !payload.chat) {
+            throw new Error('不是有效的分享对话文件');
+        }
+
+        const chat = payload.chat;
+        chat.id = gId();
+        chat.title = (chat.title || '分享的对话') + ' (分享)';
+        chat.updatedAt = Date.now();
+        chat.isPinned = false;
+        chat.isArchived = false;
+
+        if (chat.messages) {
+            chat.messages.forEach(function (m) {
+                if (!m.id) m.id = gId();
+                m._streaming = false;
+            });
+        } else {
+            chat.messages = [];
+        }
+        if (!chat.knowledgeBase) chat.knowledgeBase = [];
+        if (!chat.systemPrompt) chat.systemPrompt = '';
+
+        return {
+            chat: chat,
+            source: 'feifan-share-v' + (payload.version || '?'),
+            sharedAt: payload.sharedAt,
+            sharedBy: payload.sharedBy,
+        };
+    }
+
+    /* ---------- 导入分享的对话（从文件，自动识别明文/加密） ---------- */
+    // password: 可选；若加密文件带口令而未提供，会抛出 NEED_PASSWORD 错误
+    function importSharedChat(file, password) {
         return new Promise(function (resolve, reject) {
             var r = new FileReader();
-            r.onload = function (e) {
+            r.onload = async function (e) {
                 try {
                     var raw = JSON.parse(e.target.result);
 
-                    // 检测是否为分享格式
-                    if (!raw.__feifan_share__ || !raw.chat) {
-                        reject(new Error('不是有效的分享对话文件'));
+                    // 加密文件且需要口令但没给 → 通知上层弹窗
+                    if (raw && raw.__feifan_enc__ && raw.hasPassword && !password) {
+                        var err = new Error('NEED_PASSWORD');
+                        err.code = 'NEED_PASSWORD';
+                        reject(err);
                         return;
                     }
 
-                    var chat = raw.chat;
-                    // 重新生成 ID，避免冲突
-                    chat.id = gId();
-                    chat.title = (chat.title || '分享的对话') + ' (分享)';
-                    chat.updatedAt = Date.now();
-                    chat.isPinned = false;
-                    chat.isArchived = false;
-
-                    // 确保消息格式完整
-                    if (chat.messages) {
-                        chat.messages.forEach(function (m) {
-                            if (!m.id) m.id = gId();
-                            m._streaming = false;
-                        });
-                    } else {
-                        chat.messages = [];
-                    }
-
-                    if (!chat.knowledgeBase) chat.knowledgeBase = [];
-                    if (!chat.systemPrompt) chat.systemPrompt = '';
-
-                    resolve({
-                        chat: chat,
-                        source: 'feifan-share-v' + (raw.version || '?'),
-                        sharedAt: raw.sharedAt,
-                        sharedBy: raw.sharedBy,
-                    });
+                    var result = await normalizeSharedObject(raw, password);
+                    resolve(result);
                 } catch (err) {
                     reject(new Error('解析分享文件失败：' + err.message));
                 }
@@ -358,14 +493,16 @@ const Snapshot = (function () {
         });
     }
 
-    /* ---------- 检测文件是快照还是分享 ---------- */
+    /* ---------- 检测文件类型（share / enc / snapshot / unknown） ---------- */
     function detectFileType(file) {
         return new Promise(function (resolve) {
             var r = new FileReader();
             r.onload = function (e) {
                 try {
                     var raw = JSON.parse(e.target.result);
-                    if (raw.__feifan_share__) {
+                    if (raw.__feifan_enc__) {
+                        resolve(raw.hasPassword ? 'enc-pwd' : 'enc');
+                    } else if (raw.__feifan_share__) {
                         resolve('share');
                     } else if (raw.__feifan_snapshot__ || raw.chats || raw.profiles || raw.conversations) {
                         resolve('snapshot');
@@ -391,10 +528,16 @@ const Snapshot = (function () {
         mergeStates: mergeStates,
         protectLocalKeys: protectLocalKeys,
         detectAndNormalize: detectAndNormalize,
-        // v2.3.4 新增：分享功能
+        // 分享 + 加密 (v2.3.5)
         shareChat: shareChat,
         importSharedChat: importSharedChat,
+        normalizeSharedObject: normalizeSharedObject,
         detectFileType: detectFileType,
+        encryptShareData: encryptShareData,
+        decryptShareData: decryptShareData,
+        SUPPORTS_CRYPTO: SUPPORTS_CRYPTO,
+        // 给 archive.js 复用：构建明文 payload
+        _buildSharePayload: _buildSharePayload,
     };
 })();
 
