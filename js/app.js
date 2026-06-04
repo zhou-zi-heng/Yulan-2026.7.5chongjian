@@ -565,11 +565,15 @@ function renderArchiveInfo() {
         el.innerHTML = '<span style="color:var(--text2)">⚠️ 当前浏览器不支持自动存档（需 Chrome / Edge）</span>';
         return;
     }
-    if (Archive.isEnabled()) {
-        el.innerHTML = '✅ 已开启自动存档<br>目录：<strong>' + esc(Archive.getDirName()) + '</strong>'
+        if (Archive.isEnabled()) {
+        const authTxt = Archive.isAuthorized()
+            ? '🟢 已授权'
+            : '🔴 待授权（请刷新后点击授权弹窗）';
+        el.innerHTML = '✅ 已开启自动存档（' + authTxt + '）<br>目录：<strong>' + esc(Archive.getDirName()) + '</strong>'
             + '<br><span style="font-size:11px;color:var(--text2)">每 ' + (S.archiveInterval || 10)
             + ' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话（HTML + JSON）</span>';
     } else {
+
         el.innerHTML = '<span style="color:var(--text2)">未设置存档目录（设置后将自动备份对话到局域网共享目录）</span>';
     }
 }
