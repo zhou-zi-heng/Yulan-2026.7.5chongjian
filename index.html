@@ -31,8 +31,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
-    <link rel="stylesheet" href="css/main.css?v=2.3.6">
-    <link rel="stylesheet" href="css/theme.css?v=2.3.6">
+    <link rel="stylesheet" href="css/main.css?v=2.3.7">
+    <link rel="stylesheet" href="css/theme.css?v=2.3.7">
 </head>
 <body>
 
@@ -243,6 +243,33 @@
         </div>
     </div>
 </div>
+<!-- ===== v2.3.7 存档授权提示弹窗 ===== -->
+<div class="mo" id="mo-auth">
+    <div class="md" style="max-width:420px;text-align:center">
+        <div class="md-b" style="padding:28px 24px">
+            <div style="font-size:52px;line-height:1">📁</div>
+            <h2 style="margin:14px 0 8px;font-size:18px">开启对话自动存档</h2>
+            <p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:6px">
+                检测到你已设置存档目录：<br>
+                <strong id="authDirName" style="color:var(--text)">—</strong>
+            </p>
+            <p style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:22px">
+                点击下方按钮授权，本次浏览期间将自动把对话<br>保存到该目录（每次重新打开页面需点一次）。
+            </p>
+            <button onclick="doAuthNow()"
+                style="width:100%;padding:16px;font-size:17px;font-weight:600;color:#fff;
+                       background:linear-gradient(135deg,#667eea,#764ba2);border:none;
+                       border-radius:12px;cursor:pointer;box-shadow:0 4px 14px rgba(102,126,234,.4)">
+                ✅ 立即授权并开启存档
+            </button>
+            <button onclick="closeAuthModal()"
+                style="width:100%;padding:10px;margin-top:10px;font-size:13px;color:var(--text2);
+                       background:transparent;border:none;cursor:pointer">
+                稍后再说
+            </button>
+        </div>
+    </div>
+</div>
 
 <!-- 模态框：快照迁移 -->
 <div class="mo" id="mo-snap">
@@ -273,19 +300,19 @@
 
 <div class="tc" id="tc"></div>
 
-<script src="js/utils.js?v=2.3.6"></script>
-<script src="js/storage.js?v=2.3.6"></script>
-<script src="js/api.js?v=2.3.6"></script>
-<script src="js/ui.js?v=2.3.6"></script>
-<script src="js/parsers/text.js?v=2.3.6"></script>
-<script src="js/parsers/csv.js?v=2.3.6"></script>
-<script src="js/parsers/office.js?v=2.3.6"></script>
-<script src="js/parsers/pdf.js?v=2.3.6"></script>
-<script src="js/parser.js?v=2.3.6"></script>
-<script src="js/upload.js?v=2.3.6"></script>
-<script src="js/snapshot.js?v=2.3.6"></script>
-<script src="js/archive.js?v=2.3.6"></script>
-<script src="js/app.js?v=2.3.6"></script>
+<script src="js/utils.js?v=2.3.7"></script>
+<script src="js/storage.js?v=2.3.7"></script>
+<script src="js/api.js?v=2.3.7"></script>
+<script src="js/ui.js?v=2.3.7"></script>
+<script src="js/parsers/text.js?v=2.3.7"></script>
+<script src="js/parsers/csv.js?v=2.3.7"></script>
+<script src="js/parsers/office.js?v=2.3.7"></script>
+<script src="js/parsers/pdf.js?v=2.3.7"></script>
+<script src="js/parser.js?v=2.3.7"></script>
+<script src="js/upload.js?v=2.3.7"></script>
+<script src="js/snapshot.js?v=2.3.7"></script>
+<script src="js/archive.js?v=2.3.7"></script>
+<script src="js/app.js?v=2.3.7"></script>
 
 </body>
 </html>
