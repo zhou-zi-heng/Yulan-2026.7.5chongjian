@@ -1,11 +1,13 @@
-/* ===== ZenMux IndexedDB 存储层 ===== */
+/* ===== 飞凡ai对话 IndexedDB 存储层 (v2.3.4) ===== */
 /* 提供与 localStorage 类似的简单 API，背后用 IndexedDB */
+/* v2.3.4: 新增存档目录句柄持久化（saveDirHandle / loadDirHandle / clearDirHandle） */
 
 const DB = (function () {
     const DB_NAME = 'ZenMuxDB';
     const DB_VERSION = 1;
     const OLD_LS_KEY = 'zenmux_v3'; // 旧 localStorage 键
     const SETTINGS_KEY_STATE = 'app_state'; // 存主状态对象
+    const SETTINGS_KEY_DIRHANDLE = 'archive_dir_handle'; // ★ 存档目录句柄
 
     let _db = null;
 
@@ -100,8 +102,6 @@ const DB = (function () {
     }
 
     /* ---------- 整体状态保存（兼容当前代码 S 对象） ---------- */
-    /* 把整个 S 对象（profiles + chats + currentChatId + theme 等）存进 settings */
-    /* 后续可以拆得更细，但第一阶段先保兼容 */
     async function saveState(state) {
         try {
             await setSetting(SETTINGS_KEY_STATE, state);
@@ -144,6 +144,38 @@ const DB = (function () {
         return _req(s.delete('auto'));
     }
 
+    /* ==========================================================
+       ===== ★ v2.3.4 新增：存档目录句柄持久化 =================
+       ========================================================== */
+    /* FileSystemDirectoryHandle 是可结构化克隆对象，可直接存入 IndexedDB。
+       这样用户选过一次目录后，刷新/重开页面无需重选（仍需点一次"允许"授权）。 */
+    async function saveDirHandle(handle) {
+        try {
+            await setSetting(SETTINGS_KEY_DIRHANDLE, handle);
+            return true;
+        } catch (e) {
+            console.error('[saveDirHandle]', e);
+            return false;
+        }
+    }
+    async function loadDirHandle() {
+        try {
+            return await getSetting(SETTINGS_KEY_DIRHANDLE, null);
+        } catch (e) {
+            console.error('[loadDirHandle]', e);
+            return null;
+        }
+    }
+    async function clearDirHandle() {
+        try {
+            await delSetting(SETTINGS_KEY_DIRHANDLE);
+            return true;
+        } catch (e) {
+            console.error('[clearDirHandle]', e);
+            return false;
+        }
+    }
+
     /* ---------- 清空整个数据库（危险操作） ---------- */
     async function clearAll() {
         const stores = ['conversations', 'messages', 'attachments', 'settings', 'snapshots'];
@@ -159,17 +191,13 @@ const DB = (function () {
             const raw = localStorage.getItem(OLD_LS_KEY);
             if (!raw) return false;
 
-            // 检查是否已经迁移过
             const migrated = await getSetting('_migrated_from_ls', false);
             if (migrated) return false;
 
             const data = safeJSON(raw, null);
             if (!data) return false;
 
-            // 直接整体存为 state
             await saveState(data);
-
-            // 标记已迁移（保留旧数据 7 天作为安全网）
             await setSetting('_migrated_from_ls', { time: Date.now(), version: APP_VERSION });
 
             console.log('[Migration] 从 localStorage 迁移成功');
@@ -204,12 +232,9 @@ const DB = (function () {
     /* ---------- 获取存储用量信息 ---------- */
     async function getStorageInfo() {
         const info = {
-            used: 0,
-            quota: 0,
-            usedText: '未知',
-            quotaText: '未知',
-            percent: 0,
-            persisted: false,
+            used: 0, quota: 0,
+            usedText: '未知', quotaText: '未知',
+            percent: 0, persisted: false,
         };
         try {
             if (navigator.storage && navigator.storage.estimate) {
@@ -243,6 +268,10 @@ const DB = (function () {
         setSetting: setSetting,
         getSetting: getSetting,
         delSetting: delSetting,
+        // ★ v2.3.4 新增：存档目录句柄
+        saveDirHandle: saveDirHandle,
+        loadDirHandle: loadDirHandle,
+        clearDirHandle: clearDirHandle,
         // 工具
         clearAll: clearAll,
         migrateFromLocalStorage: migrateFromLocalStorage,
