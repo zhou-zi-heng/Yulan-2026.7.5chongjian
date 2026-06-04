@@ -1,6 +1,5 @@
-/* ===== 飞凡AI - 主入口 (v2.3.4) ===== */
-/* 全局当前引擎模式 - 所有会话实时跟随设置 */
-/* v2.3.4: 修复拖拽上传面板bug + 分享对话 + 智能拖拽识别 */
+/* ===== 飞凡AI - 主入口 (v2.3.5) ===== */
+/* v2.3.5: 加密分享 + 用户名 + 局域网自动存档 */
 
 /* ============================================================
    ===== 全局状态 ==============================================
@@ -13,6 +12,7 @@ let S = {
     currentEngId: 'zenmux',
     theme: 'light',
     snapInterval: 5,
+    userName: '',   // ★ v2.3.5 用户名（跟随快照迁移）
 };
 
 let _saveTimer = null;
@@ -41,14 +41,13 @@ async function loadState() {
         S = Object.assign({
             profiles: {}, chats: {}, chatOrder: [],
             currentChatId: null, currentEngId: 'zenmux',
-            theme: 'light', snapInterval: 5,
+            theme: 'light', snapInterval: 5, userName: '',
         }, loaded);
 
         if (!S.chatOrder || !S.chatOrder.length) {
             S.chatOrder = Object.keys(S.chats || {}).sort((a, b) =>
                 (S.chats[b].updatedAt || 0) - (S.chats[a].updatedAt || 0));
         }
-        // 修复未完成的流式消息
         for (const cid in S.chats) {
             const c = S.chats[cid];
             if (c.messages) {
@@ -58,11 +57,9 @@ async function loadState() {
             }
         }
     }
-    // 默认引擎
     if (!S.profiles || !Object.keys(S.profiles).length) {
         S.profiles = JSON.parse(JSON.stringify(API.DEFAULT_PROFILES));
     }
-    // 兼容老引擎数据：补齐 4 个参数开关
     for (const id in S.profiles) {
         const p = S.profiles[id];
         if (p.useTemp === undefined) p.useTemp = true;
@@ -74,11 +71,9 @@ async function loadState() {
         if (p.top_p === undefined) p.top_p = 1;
         if (p.frequency_penalty === undefined) p.frequency_penalty = 0;
     }
-    // 确保 currentEngId 指向一个真实存在的引擎
     if (!S.profiles[S.currentEngId]) {
         S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
     }
-    // 应用主题
     if (S.theme === 'dark') {
         document.documentElement.setAttribute('data-theme', 'dark');
         const tb = document.getElementById('themeBtn');
@@ -104,15 +99,9 @@ function curProfile() {
 function newChat() {
     const id = gId();
     S.chats[id] = {
-        id: id,
-        title: '新对话',
-        messages: [],
-        systemPrompt: '',
-        knowledgeBase: [],
-        isPinned: false,
-        isArchived: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        id: id, title: '新对话', messages: [], systemPrompt: '',
+        knowledgeBase: [], isPinned: false, isArchived: false,
+        createdAt: Date.now(), updatedAt: Date.now(),
     };
     S.chatOrder.unshift(id);
     S.currentChatId = id;
@@ -137,9 +126,7 @@ function delChat(id) {
     if (!confirm('确认删除此对话？')) return;
     delete S.chats[id];
     S.chatOrder = S.chatOrder.filter(x => x !== id);
-    if (S.currentChatId === id) {
-        S.currentChatId = S.chatOrder[0] || null;
-    }
+    if (S.currentChatId === id) S.currentChatId = S.chatOrder[0] || null;
     scheduleSave();
     renderAll();
 }
@@ -191,27 +178,55 @@ function clrC() {
 }
 
 /* ============================================================
-   ===== 分享对话 (v2.3.4 新增) ================================
+   ===== 分享对话 (v2.3.5：加密 + 可选口令) ====================
    ============================================================ */
-function shareC() {
+async function shareC() {
     const c = curChat();
     if (!c) { toast('请先选择一个对话', 'er'); return; }
     if (!c.messages || !c.messages.length) { toast('对话为空，无法分享', 'er'); return; }
 
-    const includeKB = c.knowledgeBase && c.knowledgeBase.length > 0
-        ? confirm('是否包含知识库文件？\n\n✅ 确定 = 包含（对方可看到全部上下文）\n❌ 取消 = 不包含（文件更小）')
+    // 是否包含知识库
+    const includeKB = (c.knowledgeBase && c.knowledgeBase.length > 0)
+        ? confirm('是否包含知识库文件？\n\n✅ 确定 = 包含\n❌ 取消 = 不包含（文件更小）')
         : false;
 
-    Snapshot.shareChat(c, { includeKB: includeKB });
+    // 是否设置访问口令（可选）
+    let password = '';
+    if (Snapshot.SUPPORTS_CRYPTO) {
+        const wantPwd = confirm(
+            '是否设置访问口令？\n\n' +
+            '✅ 确定 = 设置口令（对方需输入口令才能打开，最安全）\n' +
+            '❌ 取消 = 不设口令（仅飞凡AI用户可打开，外人是乱码）'
+        );
+        if (wantPwd) {
+            const pwd = prompt('请输入访问口令（请记住并告知接收方）：', '');
+            if (pwd && pwd.trim()) {
+                password = pwd.trim();
+            } else {
+                toast('未输入口令，将仅用应用密钥加密');
+            }
+        }
+    }
+
+    await Snapshot.shareChat(c, {
+        includeKB: includeKB,
+        sharedBy: S.userName || '',
+        encrypt: true,
+        password: password,
+    });
 }
 
 /* ============================================================
-   ===== 主题 ==================================================
+   ===== 主题 / 用户名 =========================================
    ============================================================ */
 function togTheme() {
     S.theme = S.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', S.theme === 'dark' ? 'dark' : '');
     document.getElementById('themeBtn').textContent = S.theme === 'dark' ? '☀️' : '🌙';
+    scheduleSave();
+}
+function updUserName(v) {
+    S.userName = (v || '').trim();
     scheduleSave();
 }
 
@@ -301,13 +316,12 @@ function renderAll() {
     renderEngForm();
     renderCSForm();
     renderStorageInfo();
+    renderArchiveInfo();
 }
 
 /* ============================================================
-   ===== ⚙️ 引擎配置（1:1 还原原版） ===========================
+   ===== ⚙️ 引擎配置 ===========================================
    ============================================================ */
-
-/* ---------- Tab 渲染 ---------- */
 function renderEngTabs() {
     const tabs = document.getElementById('engTabs');
     if (!tabs) return;
@@ -329,19 +343,13 @@ function renderEngTabs() {
     });
 }
 
-/* ---------- Max Tokens 预设按钮 ---------- */
 const MAX_TOKEN_PRESETS = [
-    { label: '4K', val: 4096 },
-    { label: '8K', val: 8192 },
-    { label: '16K', val: 16384 },
-    { label: '32K', val: 32768 },
-    { label: '64K', val: 65536 },
-    { label: '128K', val: 131072 },
-    { label: '256K', val: 262144 },
-    { label: '1M', val: 1048576 },
+    { label: '4K', val: 4096 }, { label: '8K', val: 8192 },
+    { label: '16K', val: 16384 }, { label: '32K', val: 32768 },
+    { label: '64K', val: 65536 }, { label: '128K', val: 131072 },
+    { label: '256K', val: 262144 }, { label: '1M', val: 1048576 },
 ];
 
-/* ---------- 引擎表单 ---------- */
 function renderEngForm() {
     const form = document.getElementById('engForm');
     if (!form) return;
@@ -356,19 +364,16 @@ function renderEngForm() {
             <label>引擎名称</label>
             <input type="text" id="engName" value="${esc(p.name)}">
         </div>
-
         <div class="fg">
             <label>🌐 Base URL</label>
             <input type="text" id="engBase" value="${esc(p.base)}" placeholder="https://api.openai.com/v1">
         </div>
-
         <div class="fg">
             <label>🔑 API Key
                 <span style="font-weight:normal;color:var(--text2);font-size:11px">（仅本地存储，不上传）</span>
             </label>
             <input type="password" id="engKey" value="${esc(p.key)}" autocomplete="off" placeholder="sk-...">
         </div>
-
         <div class="fg">
             <label>🧠 模型 ID</label>
             <div style="display:flex;gap:6px">
@@ -377,10 +382,8 @@ function renderEngForm() {
             </div>
             <div id="mdlSel" style="display:none;margin-top:6px"></div>
         </div>
-
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
             <h4 style="font-size:13px;margin-bottom:10px">⚙️ 运行时参数</h4>
-
             <div class="pt">
                 <input type="checkbox" id="engUseTemp" ${p.useTemp ? 'checked' : ''}>
                 <label for="engUseTemp">🔥 Temperature 温度</label>
@@ -391,7 +394,6 @@ function renderEngForm() {
                     <span style="font-size:11px;color:var(--text2);margin-left:8px">0=精确, 2=发散</span>
                 </div>
             </div>
-
             <div class="pt">
                 <input type="checkbox" id="engUseMax" ${p.useMax ? 'checked' : ''}>
                 <label for="engUseMax">📏 Max Tokens 最大输出长度</label>
@@ -399,12 +401,9 @@ function renderEngForm() {
             <div class="ps" id="engMaxBox" style="${p.useMax ? '' : 'display:none'}">
                 <input type="number" id="engMax" value="${p.max_tokens}" min="1" max="2097152">
                 <div class="presets">
-                    ${MAX_TOKEN_PRESETS.map(x =>
-                        `<button onclick="setMax(${x.val})">${x.label}</button>`
-                    ).join('')}
+                    ${MAX_TOKEN_PRESETS.map(x => `<button onclick="setMax(${x.val})">${x.label}</button>`).join('')}
                 </div>
             </div>
-
             <div class="pt">
                 <input type="checkbox" id="engUseTopP" ${p.useTopP ? 'checked' : ''}>
                 <label for="engUseTopP">🎲 Top P 核采样</label>
@@ -413,7 +412,6 @@ function renderEngForm() {
                 <input type="range" id="engTopP" min="0" max="1" step="0.05" value="${p.top_p}">
                 <div>当前值：<span class="pv" id="engTopPV">${p.top_p}</span></div>
             </div>
-
             <div class="pt">
                 <input type="checkbox" id="engUseFreq" ${p.useFreq ? 'checked' : ''}>
                 <label for="engUseFreq">🚫 Frequency Penalty 重复惩罚</label>
@@ -423,15 +421,12 @@ function renderEngForm() {
                 <div>当前值：<span class="pv" id="engFreqV">${p.frequency_penalty}</span></div>
             </div>
         </div>
-
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
             <button class="btn btn-p" onclick="saveEng()">💾 保存配置</button>
             <button class="btn" onclick="tConn()" id="tConnBtn">🔑 测试连通</button>
-            ${API.DEFAULT_PROFILES[p.id] ? '' :
-                '<button class="btn btn-d" onclick="delEng()">🗑️ 删除</button>'}
+            ${API.DEFAULT_PROFILES[p.id] ? '' : '<button class="btn btn-d" onclick="delEng()">🗑️ 删除</button>'}
         </div>
     `;
-
     bindEngEvents(p);
 }
 
@@ -459,32 +454,23 @@ function bindEngEvents(p) {
     };
 }
 
-function setMax(val) {
-    document.getElementById('engMax').value = val;
-}
+function setMax(val) { document.getElementById('engMax').value = val; }
 
-/* ---------- 保存配置 ---------- */
 function saveEng() {
     const p = S.profiles[S.currentEngId];
     if (!p) return;
-
     p.name = document.getElementById('engName').value.trim() || p.name;
     p.base = document.getElementById('engBase').value.trim();
     p.key = document.getElementById('engKey').value.trim();
     p.model = document.getElementById('engModel').value.trim();
-
     p.useTemp = document.getElementById('engUseTemp').checked;
     p.temperature = parseFloat(document.getElementById('engTemp').value);
-
     p.useMax = document.getElementById('engUseMax').checked;
     p.max_tokens = parseInt(document.getElementById('engMax').value, 10);
-
     p.useTopP = document.getElementById('engUseTopP').checked;
     p.top_p = parseFloat(document.getElementById('engTopP').value);
-
     p.useFreq = document.getElementById('engUseFreq').checked;
     p.frequency_penalty = parseFloat(document.getElementById('engFreq').value);
-
     scheduleSave();
     renderEngTabs();
     renderSB();
@@ -492,27 +478,17 @@ function saveEng() {
     toast('✅ 配置已保存');
 }
 
-/* ---------- 获取模型列表 ---------- */
 async function fMdls() {
     const p = S.profiles[S.currentEngId];
     if (!p) return;
     p.base = document.getElementById('engBase').value.trim();
     p.key = document.getElementById('engKey').value.trim();
-    if (!p.base || !p.key) {
-        toast('请先填写 Base URL 和 API Key', 'er');
-        return;
-    }
-
+    if (!p.base || !p.key) { toast('请先填写 Base URL 和 API Key', 'er'); return; }
     const btn = document.getElementById('fMdlsBtn');
-    btn.disabled = true;
-    btn.textContent = '⏳ 获取中...';
-
+    btn.disabled = true; btn.textContent = '⏳ 获取中...';
     try {
         const list = await API.fetchModels(p);
-        if (!list.length) {
-            toast('未返回任何模型', 'er');
-            return;
-        }
+        if (!list.length) { toast('未返回任何模型', 'er'); return; }
         const sel = document.getElementById('mdlSel');
         sel.style.display = '';
         sel.innerHTML = '<select id="mdlPick" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)">'
@@ -525,45 +501,32 @@ async function fMdls() {
     } catch (e) {
         toast('获取失败：' + e.message, 'er');
     } finally {
-        btn.disabled = false;
-        btn.textContent = '🔄 获取';
+        btn.disabled = false; btn.textContent = '🔄 获取';
     }
 }
 
-/* ---------- 测试连通 ---------- */
 async function tConn() {
     const p = S.profiles[S.currentEngId];
     if (!p) return;
     p.base = document.getElementById('engBase').value.trim();
     p.key = document.getElementById('engKey').value.trim();
-    if (!p.base || !p.key) {
-        toast('请先填写 Base URL 和 API Key', 'er');
-        return;
-    }
-
+    if (!p.base || !p.key) { toast('请先填写 Base URL 和 API Key', 'er'); return; }
     const btn = document.getElementById('tConnBtn');
-    btn.disabled = true;
-    btn.textContent = '⏳ 测试中...';
-
+    btn.disabled = true; btn.textContent = '⏳ 测试中...';
     const result = await API.testConnection(p);
-    btn.disabled = false;
-    btn.textContent = '🔑 测试连通';
+    btn.disabled = false; btn.textContent = '🔑 测试连通';
     toast(result.msg, result.ok ? 'ok' : 'er');
 }
 
-/* ---------- 新增引擎 ---------- */
 function addEng() {
     const name = prompt('新引擎名称：', '我的引擎');
     if (!name || !name.trim()) return;
     const id = 'custom_' + gId().slice(0, 8);
     S.profiles[id] = {
         id: id, name: name.trim(),
-        base: 'https://api.openai.com/v1', key: '',
-        model: 'gpt-4o-mini',
-        useTemp: true, temperature: 0.7,
-        useMax: true, max_tokens: 4096,
-        useTopP: false, top_p: 1,
-        useFreq: false, frequency_penalty: 0,
+        base: 'https://api.openai.com/v1', key: '', model: 'gpt-4o-mini',
+        useTemp: true, temperature: 0.7, useMax: true, max_tokens: 4096,
+        useTopP: false, top_p: 1, useFreq: false, frequency_penalty: 0,
     };
     S.currentEngId = id;
     scheduleSave();
@@ -573,14 +536,10 @@ function addEng() {
     renderMs();
 }
 
-/* ---------- 删除引擎 ---------- */
 function delEng() {
     const p = S.profiles[S.currentEngId];
     if (!p) return;
-    if (API.DEFAULT_PROFILES[p.id]) {
-        toast('内置引擎不可删除', 'er');
-        return;
-    }
+    if (API.DEFAULT_PROFILES[p.id]) { toast('内置引擎不可删除', 'er'); return; }
     if (!confirm('删除引擎 ' + p.name + '？')) return;
     delete S.profiles[p.id];
     S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
@@ -590,6 +549,54 @@ function delEng() {
     renderSB();
     renderMs();
     toast('已删除');
+}
+
+/* ============================================================
+   ===== 全局设置：用户名 + 存档目录 (v2.3.5) =================
+   ============================================================ */
+function renderGlobalSettings() {
+    const uIn = document.getElementById('userNameIn');
+    if (uIn) uIn.value = S.userName || '';
+    renderArchiveInfo();
+}
+
+function renderArchiveInfo() {
+    const el = document.getElementById('archiveInfo');
+    if (!el || typeof Archive === 'undefined') return;
+    if (!Archive.isSupported()) {
+        el.innerHTML = '<span style="color:var(--text2)">⚠️ 当前浏览器不支持自动存档（需 Chrome / Edge）</span>';
+        return;
+    }
+    if (Archive.isEnabled()) {
+        el.innerHTML = '✅ 已开启自动存档<br>目录：<strong>' + esc(Archive.getDirName()) + '</strong>'
+            + '<br><span style="font-size:11px;color:var(--text2)">每小时自动保存有更新的对话（HTML + JSON）</span>';
+    } else {
+        el.innerHTML = '<span style="color:var(--text2)">未设置存档目录（设置后将自动备份对话到局域网共享目录）</span>';
+    }
+}
+
+async function chooseArchiveDir() {
+    if (typeof Archive === 'undefined') return;
+    const ok = await Archive.chooseDir();
+    if (ok) {
+        Archive.startHourly();
+        renderArchiveInfo();
+        // 立即存一次
+        await Archive.archiveAll({ silent: false });
+    }
+}
+
+async function clearArchiveDir() {
+    if (typeof Archive === 'undefined') return;
+    if (!confirm('确认关闭自动存档？（已存档的文件不会被删除）')) return;
+    Archive.stopHourly();
+    await Archive.clearDir();
+    renderArchiveInfo();
+}
+
+async function archiveNowBtn() {
+    if (typeof Archive === 'undefined') return;
+    await Archive.archiveNow();
 }
 
 /* ============================================================
@@ -613,9 +620,7 @@ function updSP(v) {
 function updSnapInterval(v) {
     S.snapInterval = parseInt(v, 10) || 0;
     scheduleSave();
-    if (typeof Snapshot !== 'undefined') {
-        Snapshot.startAuto(S.snapInterval, () => S);
-    }
+    if (typeof Snapshot !== 'undefined') Snapshot.startAuto(S.snapInterval, () => S);
     toast('快照间隔：' + (S.snapInterval ? S.snapInterval + ' 分钟' : '关闭'));
 }
 
@@ -665,44 +670,28 @@ async function send() {
     let attachedText = '';
     const imageAtts = [];
     attsForUser.forEach(a => {
-        if (a.type === 'image') {
-            imageAtts.push(a);
-        } else if (a.text) {
-            attachedText += '\n\n=== 📎 附件：' + a.fileName + ' ===\n' + a.text + '\n=== 附件结束 ===\n';
-        }
+        if (a.type === 'image') imageAtts.push(a);
+        else if (a.text) attachedText += '\n\n=== 📎 附件：' + a.fileName + ' ===\n' + a.text + '\n=== 附件结束 ===\n';
     });
 
     let kbText = '';
     if (c.knowledgeBase && c.knowledgeBase.length) {
         c.knowledgeBase.forEach(k => {
-            if (k.type === 'image') {
-                imageAtts.push({ fileName: k.name, dataUrl: k.dataUrl, type: 'image' });
-            } else if (k.text) {
-                kbText += '\n\n=== 📚 知识库：' + k.name + ' ===\n' + k.text + '\n=== 知识库结束 ===\n';
-            }
+            if (k.type === 'image') imageAtts.push({ fileName: k.name, dataUrl: k.dataUrl, type: 'image' });
+            else if (k.text) kbText += '\n\n=== 📚 知识库：' + k.name + ' ===\n' + k.text + '\n=== 知识库结束 ===\n';
         });
     }
 
     const composedText = (kbText ? kbText + '\n' : '') + (attachedText ? attachedText + '\n' : '') + text;
 
     const userMsg = {
-        id: gId(),
-        role: 'user',
-        content: userVisibleText,
-        attachments: attsForUser.map(a => ({
-            name: a.fileName, type: a.type, ext: a.meta && a.meta.ext,
-        })),
+        id: gId(), role: 'user', content: userVisibleText,
+        attachments: attsForUser.map(a => ({ name: a.fileName, type: a.type, ext: a.meta && a.meta.ext })),
         _time: nowTime(),
     };
     c.messages.push(userMsg);
 
-    const aiMsg = {
-        id: gId(),
-        role: 'assistant',
-        content: '',
-        _streaming: true,
-        _time: nowTime(),
-    };
+    const aiMsg = { id: gId(), role: 'assistant', content: '', _streaming: true, _time: nowTime() };
     c.messages.push(aiMsg);
 
     if (c.title === '新对话' && c.messages.length <= 2) {
@@ -710,8 +699,7 @@ async function send() {
     }
     c.updatedAt = Date.now();
 
-    inp.value = '';
-    aRsz(inp);
+    inp.value = ''; aRsz(inp);
     _pendingAtts = [];
     renderAttList();
 
@@ -720,9 +708,7 @@ async function send() {
     renderSB();
 
     const sendMsgs = [];
-    if (c.systemPrompt && c.systemPrompt.trim()) {
-        sendMsgs.push({ role: 'system', content: c.systemPrompt });
-    }
+    if (c.systemPrompt && c.systemPrompt.trim()) sendMsgs.push({ role: 'system', content: c.systemPrompt });
     const lastUserIdx = c.messages.length - 2;
     c.messages.forEach((m, idx) => {
         if (m === aiMsg) return;
@@ -731,9 +717,7 @@ async function send() {
             if (imageAtts.length) {
                 const parts = [];
                 if (composedText) parts.push({ type: 'text', text: composedText });
-                imageAtts.forEach(im => {
-                    parts.push({ type: 'image_url', image_url: { url: im.dataUrl } });
-                });
+                imageAtts.forEach(im => parts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
                 sendMsgs.push({ role: 'user', content: parts });
             } else {
                 sendMsgs.push({ role: 'user', content: composedText || userVisibleText });
@@ -760,10 +744,7 @@ async function send() {
         onDelta: (delta, full) => {
             aiMsg.content = full;
             updater(full);
-            if (Date.now() - lastSaveTime > SAVE_INTERVAL) {
-                lastSaveTime = Date.now();
-                scheduleSave();
-            }
+            if (Date.now() - lastSaveTime > SAVE_INTERVAL) { lastSaveTime = Date.now(); scheduleSave(); }
         },
         onDone: async (full) => {
             aiMsg.content = full;
@@ -810,10 +791,7 @@ async function regenerate(msg) {
     const idx = c.messages.indexOf(msg);
     if (idx < 1) return;
     const prev = c.messages[idx - 1];
-    if (prev.role !== 'user') {
-        toast('无法找到对应的提问', 'er');
-        return;
-    }
+    if (prev.role !== 'user') { toast('无法找到对应的提问', 'er'); return; }
     c.messages.splice(idx, 1);
     const userText = typeof prev.content === 'string' ? prev.content : '';
     c.messages.splice(idx - 1, 1);
@@ -841,7 +819,7 @@ function openM(n) {
     if (!m) return;
     m.classList.add('show');
     if (n === 'cs') { renderCSForm(); renderKBList(); }
-    if (n === 'set') { renderEngTabs(); renderEngForm(); renderStorageInfo(); }
+    if (n === 'set') { renderEngTabs(); renderEngForm(); renderStorageInfo(); renderGlobalSettings(); }
     if (n === 'exp') updExpPreview();
     if (n === 'snap' && IS_IOS) {
         const w = document.getElementById('iosW');
@@ -860,61 +838,69 @@ function togSB() {
 /* ============================================================
    ===== 附件 / 知识库 / 上传 =================================
    ============================================================ */
-function togAtt() {
-    document.getElementById('attPan').classList.toggle('show');
-}
-function updAttCont() {
-    _attContinuous = document.getElementById('attCont').checked;
-}
-function onAtt(inputEl) {
-    Upload.fromInput(inputEl);
+function togAtt() { document.getElementById('attPan').classList.toggle('show'); }
+function updAttCont() { _attContinuous = document.getElementById('attCont').checked; }
+function onAtt(inputEl) { Upload.fromInput(inputEl); }
+
+/* 导入分享对话（统一处理，支持加密 + 口令重试） */
+async function _importShareFile(file) {
+    let password = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const result = await Snapshot.importSharedChat(file, password);
+            const chat = result.chat;
+            S.chats[chat.id] = chat;
+            S.chatOrder.unshift(chat.id);
+            S.currentChatId = chat.id;
+            await saveNow();
+            renderAll();
+            const byText = result.sharedBy ? '（来自: ' + result.sharedBy + '）' : '';
+            toast('✅ 已导入分享对话' + byText + '，可继续聊天！');
+            return;
+        } catch (e) {
+            if (e.code === 'NEED_PASSWORD' || /口令/.test(e.message)) {
+                const pwd = prompt(
+                    attempt === 0
+                        ? '该分享文件已加密，请输入访问口令：'
+                        : '口令错误，请重新输入（剩余 ' + (3 - attempt) + ' 次）：',
+                    ''
+                );
+                if (pwd === null) { toast('已取消导入'); return; }
+                password = pwd.trim();
+                continue;
+            }
+            toast('❌ 导入分享失败：' + e.message, 'er');
+            return;
+        }
+    }
+    toast('❌ 口令错误次数过多，导入取消', 'er');
 }
 
 async function handleUploadedFiles(files) {
     if (!files || !files.length) return;
     const fileArr = Array.from(files);
 
-    /* ★ v2.3.4：智能检测 JSON 文件 - 识别分享对话 / 快照 */
-    const jsonFiles = fileArr.filter(f => f.name.endsWith('.json'));
-    const otherFiles = fileArr.filter(f => !f.name.endsWith('.json'));
+    const jsonFiles = fileArr.filter(f => /\.json$/i.test(f.name));
+    const otherFiles = fileArr.filter(f => !/\.json$/i.test(f.name));
 
     for (const jf of jsonFiles) {
         try {
             const fileType = await Snapshot.detectFileType(jf);
 
-            if (fileType === 'share') {
-                // 分享对话文件 → 自动导入并切换
-                try {
-                    const result = await Snapshot.importSharedChat(jf);
-                    const chat = result.chat;
-                    S.chats[chat.id] = chat;
-                    S.chatOrder.unshift(chat.id);
-                    S.currentChatId = chat.id;
-                    await saveNow();
-                    renderAll();
-                    const byText = result.sharedBy ? '（来自: ' + result.sharedBy + '）' : '';
-                    toast('✅ 已导入分享对话' + byText + '，可继续聊天！');
-                } catch (e) {
-                    toast('❌ 导入分享失败：' + e.message, 'er');
-                }
+            if (fileType === 'share' || fileType === 'enc' || fileType === 'enc-pwd') {
+                await _importShareFile(jf);
                 continue;
             }
-
             if (fileType === 'snapshot') {
-                // 快照文件 → 提示用户通过快照面板导入
                 toast('📦 检测到快照文件，请通过侧边栏 → 📦 快照迁移 导入', 'er');
                 continue;
             }
-
-            // 未知 JSON → 当普通附件处理
             otherFiles.push(jf);
         } catch (e) {
-            // detectFileType 出错 → 当普通附件
             otherFiles.push(jf);
         }
     }
 
-    // 处理普通文件（原逻辑）
     if (!otherFiles.length) return;
 
     toast('开始解析 ' + otherFiles.length + ' 个文件...');
@@ -922,13 +908,8 @@ async function handleUploadedFiles(files) {
 
     let okCount = 0, failCount = 0;
     results.forEach(r => {
-        if (r.ok) {
-            _pendingAtts.push(r.result);
-            okCount++;
-        } else {
-            failCount++;
-            toast('❌ ' + r.file.name + '：' + r.error, 'er');
-        }
+        if (r.ok) { _pendingAtts.push(r.result); okCount++; }
+        else { failCount++; toast('❌ ' + r.file.name + '：' + r.error, 'er'); }
     });
 
     if (_attContinuous && okCount > 0) {
@@ -938,13 +919,9 @@ async function handleUploadedFiles(files) {
             results.forEach(r => {
                 if (r.ok) {
                     c.knowledgeBase.push({
-                        id: gId(),
-                        name: r.result.fileName,
-                        type: r.result.type,
-                        text: r.result.text || '',
-                        dataUrl: r.result.dataUrl || null,
-                        meta: r.result.meta || {},
-                        addedAt: Date.now(),
+                        id: gId(), name: r.result.fileName, type: r.result.type,
+                        text: r.result.text || '', dataUrl: r.result.dataUrl || null,
+                        meta: r.result.meta || {}, addedAt: Date.now(),
                     });
                 }
             });
@@ -956,9 +933,7 @@ async function handleUploadedFiles(files) {
 
     if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
     renderAttList();
-
-    /* ★ v2.3.4 Bug修复：拖拽/粘贴上传后不再强制打开附件面板
-       附件已通过 renderAttList() 更新，attBtn 上的 .has 高亮会提示用户有待发送附件 */
+    /* ★ Bug修复：拖拽/粘贴上传后不再强制打开附件面板 */
 }
 
 function renderAttList() {
@@ -966,7 +941,6 @@ function renderAttList() {
     const list = document.getElementById('attList');
     const cnt = document.getElementById('attCount');
     const btn = document.getElementById('attBtn');
-
     if (!_pendingAtts.length) {
         box.style.display = 'none';
         btn.classList.remove('has');
@@ -975,26 +949,19 @@ function renderAttList() {
     box.style.display = 'block';
     cnt.textContent = '📎 ' + _pendingAtts.length + ' 个附件待发送';
     btn.classList.add('has');
-
     list.innerHTML = '';
     _pendingAtts.forEach((a, idx) => {
         const item = document.createElement('div');
         item.className = 'att-item';
-        const icon = a.type === 'image' ? '🖼️' :
-                     a.type === 'table' ? '📊' :
-                     a.type === 'document' ? '📄' : '📝';
+        const icon = a.type === 'image' ? '🖼️' : a.type === 'table' ? '📊' : a.type === 'document' ? '📄' : '📝';
         const nm = document.createElement('span');
         nm.className = 'ai-nm';
         nm.textContent = icon + ' ' + a.fileName;
         item.appendChild(nm);
-
         const sz = document.createElement('span');
         sz.className = 'ai-sz';
-        sz.textContent = a.type === 'image'
-            ? (a.meta.sizeText || '')
-            : (cntW(a.text) + ' 字');
+        sz.textContent = a.type === 'image' ? (a.meta.sizeText || '') : (cntW(a.text) + ' 字');
         item.appendChild(sz);
-
         const rm = document.createElement('button');
         rm.className = 'ai-rm';
         rm.textContent = '×';
@@ -1005,16 +972,12 @@ function renderAttList() {
     });
 }
 
-function clrAtt() {
-    _pendingAtts = [];
-    renderAttList();
-}
+function clrAtt() { _pendingAtts = []; renderAttList(); }
 
 async function addKB(inputEl) {
     if (!inputEl.files || !inputEl.files.length) return;
     const c = curChat();
     if (!c) { toast('请先创建会话', 'er'); return; }
-
     toast('解析知识库文件...');
     const results = await Parser.parseFiles(inputEl.files);
     if (!c.knowledgeBase) c.knowledgeBase = [];
@@ -1022,13 +985,9 @@ async function addKB(inputEl) {
     results.forEach(r => {
         if (r.ok) {
             c.knowledgeBase.push({
-                id: gId(),
-                name: r.result.fileName,
-                type: r.result.type,
-                text: r.result.text || '',
-                dataUrl: r.result.dataUrl || null,
-                meta: r.result.meta || {},
-                addedAt: Date.now(),
+                id: gId(), name: r.result.fileName, type: r.result.type,
+                text: r.result.text || '', dataUrl: r.result.dataUrl || null,
+                meta: r.result.meta || {}, addedAt: Date.now(),
             });
             ok++;
         } else {
@@ -1057,9 +1016,7 @@ function renderKBList() {
         const item = document.createElement('div');
         item.className = 'att-item';
         item.style.marginBottom = '4px';
-        const icon = k.type === 'image' ? '🖼️' :
-                     k.type === 'table' ? '📊' :
-                     k.type === 'document' ? '📄' : '📝';
+        const icon = k.type === 'image' ? '🖼️' : k.type === 'table' ? '📊' : k.type === 'document' ? '📄' : '📝';
         const nm = document.createElement('span');
         nm.className = 'ai-nm';
         nm.textContent = icon + ' ' + k.name;
@@ -1085,13 +1042,11 @@ function renderKBList() {
 }
 
 /* ============================================================
-   ===== 快照 / 导入导出 (v2.3.4) =============================
+   ===== 快照 / 导入导出 ======================================
    ============================================================ */
-
 function eSnap() {
     const includeKey = confirm(
-        '导出快照\n\n' +
-        '✅ 确定 = 包含 API Key（推荐：仅本地备份用）\n' +
+        '导出快照\n\n✅ 确定 = 包含 API Key（推荐：仅本地备份用）\n' +
         '❌ 取消 = 不含 API Key（推荐：分享/上传云盘用）\n\n' +
         '提示：不含 Key 的快照导入后需要重新填写 Key。'
     );
@@ -1101,38 +1056,25 @@ function eSnap() {
 async function iSnap(inputEl) {
     if (!inputEl.files || !inputEl.files.length) return;
     const file = inputEl.files[0];
-
     const mode = confirm(
-        '导入模式选择：\n\n' +
-        '✅ 确定 = 替换模式（清除现有数据，完全使用快照）\n' +
+        '导入模式选择：\n\n✅ 确定 = 替换模式（清除现有数据，完全使用快照）\n' +
         '❌ 取消 = 合并模式（保留现有 + 添加快照内容）\n\n' +
-        '✨ 两种模式都会智能保护你本地已有的 API Key（如快照里 Key 为空，自动保留本地 Key）'
+        '✨ 两种模式都会智能保护你本地已有的 API Key'
     );
-
     try {
         const { state: importedState, source } = await Snapshot.importFromFile(file);
-
         let finalState;
         if (mode) {
-            const { state: protectedState, protectedCount } =
-                Snapshot.protectLocalKeys(importedState, S);
+            const { state: protectedState, protectedCount } = Snapshot.protectLocalKeys(importedState, S);
             finalState = protectedState;
-            if (protectedCount > 0) {
-                toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
-            }
+            if (protectedCount > 0) toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
         } else {
-            const { state: protectedState, protectedCount } =
-                Snapshot.protectLocalKeys(importedState, S);
+            const { state: protectedState, protectedCount } = Snapshot.protectLocalKeys(importedState, S);
             finalState = Snapshot.mergeStates(S, protectedState);
-            if (protectedCount > 0) {
-                toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
-            }
+            if (protectedCount > 0) toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
         }
-
         S = finalState;
-        if (!S.profiles[S.currentEngId]) {
-            S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
-        }
+        if (!S.profiles[S.currentEngId]) S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
         await saveNow();
         await Snapshot.snapNow(S);
         renderAll();
@@ -1146,7 +1088,6 @@ async function iSnap(inputEl) {
     inputEl.value = '';
 }
 
-
 /* ============================================================
    ===== 对话导出 ==============================================
    ============================================================ */
@@ -1155,13 +1096,15 @@ function updExp() {
     updExpPreview();
 }
 
-function buildExportContent() {
-    const c = curChat();
+/* 生成导出内容（chat 可选，默认当前对话；archive.js 复用此函数生成 HTML） */
+function buildExportContent(chatArg, modeArg) {
+    const c = chatArg || curChat();
+    const mode = modeArg || _exportMode;
     if (!c || !c.messages || !c.messages.length) {
         return { plain: '（无内容）', html: '<p>（无内容）</p>', title: '空对话' };
     }
     const title = c.title || '对话记录';
-    const isPure = _exportMode === 'pure';
+    const isPure = mode === 'pure';
     let plain = '', html = '';
     if (!isPure) {
         plain = '【' + title + '】\n导出时间：' + new Date().toLocaleString() + '\n\n';
@@ -1173,12 +1116,10 @@ function buildExportContent() {
         if (isPure) {
             if (m.role === 'assistant' && text) {
                 plain += text + '\n\n';
-                html += UI.renderMarkdown(text)
-                     + '<hr style="border:none;border-top:1px dashed #ccc;margin:24px 0">';
+                html += UI.renderMarkdown(text) + '<hr style="border:none;border-top:1px dashed #ccc;margin:24px 0">';
             }
         } else {
-            const roleName = m.role === 'user' ? '👤 我' :
-                             (m.role === 'assistant' ? '🤖 AI' : '⚙️ 系统');
+            const roleName = m.role === 'user' ? '👤 我' : (m.role === 'assistant' ? '🤖 AI' : '⚙️ 系统');
             plain += '【' + roleName + '】' + (m._time ? ' ' + m._time : '') + '\n' + text + '\n\n';
             html += '<div style="margin:18px 0;padding:12px 16px;background:'
                   + (m.role === 'user' ? '#e3f2fd' : '#f5f5f5')
@@ -1191,6 +1132,22 @@ function buildExportContent() {
         }
     });
     return { plain: plain.trim(), html: html, title: title };
+}
+
+/* 给 archive.js 用：生成完整 HTML 文档字符串 */
+function buildArchiveHtml(chat) {
+    const { html, title } = buildExportContent(chat, 'full');
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'
+        + esc(title) + '</title>'
+        + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">'
+        + '<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;'
+        + 'max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}'
+        + 'pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px}'
+        + 'code{font-family:SF Mono,Consolas,monospace}'
+        + 'table{border-collapse:collapse;margin:12px 0}'
+        + 'th,td{border:1px solid #ddd;padding:6px 12px}th{background:#f0f0f0}'
+        + 'blockquote{border-left:4px solid #667eea;padding-left:12px;color:#666;margin:8px 0}'
+        + 'img{max-width:100%}</style></head><body>' + html + '</body></html>';
 }
 
 function updExpPreview() {
@@ -1206,18 +1163,9 @@ function eTxt() {
     toast('✅ TXT 已导出');
 }
 function eHtml() {
-    const { html, title } = buildExportContent();
-    const full = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'
-        + esc(title) + '</title>'
-        + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">'
-        + '<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;'
-        + 'max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}'
-        + 'pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px}'
-        + 'code{font-family:SF Mono,Consolas,monospace}'
-        + 'table{border-collapse:collapse;margin:12px 0}'
-        + 'th,td{border:1px solid #ddd;padding:6px 12px}th{background:#f0f0f0}'
-        + 'blockquote{border-left:4px solid #667eea;padding-left:12px;color:#666;margin:8px 0}'
-        + 'img{max-width:100%}</style></head><body>' + html + '</body></html>';
+    const c = curChat();
+    const full = buildArchiveHtml(c);
+    const { title } = buildExportContent();
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     dl(full, (title || 'chat') + '-' + ts + '.html', 'text/html');
     toast('✅ HTML 已导出');
@@ -1263,15 +1211,12 @@ async function initApp() {
                 S.currentChatId = S.chatOrder[0];
             } else {
                 newChat();
-                initUpload();
-                initSnapshot();
-                checkURLImport();
-                return;
             }
         }
         renderAll();
         initUpload();
         initSnapshot();
+        await initArchive();
         checkURLImport();
         toast('✅ 飞凡AI 就绪');
     } catch (e) {
@@ -1297,50 +1242,44 @@ function initSnapshot() {
     console.log('[Snapshot] 已挂载');
 }
 
+async function initArchive() {
+    if (typeof Archive === 'undefined') return;
+    await Archive.init({
+        getState: () => S,
+        buildHtml: (chat) => buildArchiveHtml(chat),
+    });
+    console.log('[Archive] 已挂载');
+}
+
 /* ============================================================
-   ===== URL 参数导入分享对话 (v2.3.4) =========================
+   ===== URL 参数导入分享对话（支持加密） =====================
    ============================================================ */
 async function checkURLImport() {
     const params = new URLSearchParams(window.location.search);
     const shareUrl = params.get('share');
     if (!shareUrl) return;
-
     try {
         toast('正在加载分享对话...');
         const resp = await fetch(shareUrl);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const raw = await resp.json();
 
-        if (raw.__feifan_share__ && raw.chat) {
-            const chat = raw.chat;
-            chat.id = gId();
-            chat.title = (chat.title || '分享的对话') + ' (分享)';
-            chat.updatedAt = Date.now();
-            if (chat.messages) {
-                chat.messages.forEach(function (m) {
-                    if (!m.id) m.id = gId();
-                    m._streaming = false;
-                });
-            } else {
-                chat.messages = [];
-            }
-            if (!chat.knowledgeBase) chat.knowledgeBase = [];
-            if (!chat.systemPrompt) chat.systemPrompt = '';
-
-            S.chats[chat.id] = chat;
-            S.chatOrder.unshift(chat.id);
-            S.currentChatId = chat.id;
-            await saveNow();
-            renderAll();
-
-            const byText = raw.sharedBy ? '（来自: ' + raw.sharedBy + '）' : '';
-            toast('✅ 已导入分享对话' + byText + '，可继续聊天！');
-
-            // 清除 URL 参数，避免刷新重复导入
-            window.history.replaceState({}, '', window.location.pathname);
-        } else {
-            toast('分享链接内容格式无效', 'er');
+        let password = '';
+        if (raw && raw.__feifan_enc__ && raw.hasPassword) {
+            const pwd = prompt('该分享已加密，请输入访问口令：', '');
+            password = pwd ? pwd.trim() : '';
         }
+
+        const result = await Snapshot.normalizeSharedObject(raw, password);
+        const chat = result.chat;
+        S.chats[chat.id] = chat;
+        S.chatOrder.unshift(chat.id);
+        S.currentChatId = chat.id;
+        await saveNow();
+        renderAll();
+        const byText = result.sharedBy ? '（来自: ' + result.sharedBy + '）' : '';
+        toast('✅ 已导入分享对话' + byText + '，可继续聊天！');
+        window.history.replaceState({}, '', window.location.pathname);
     } catch (e) {
         console.error('[URLImport]', e);
         toast('分享链接加载失败：' + e.message, 'er');
@@ -1367,7 +1306,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ============================================================
-   ===== Service Worker 注册（PWA） ===========================
+   ===== Service Worker（PWA） ================================
    ============================================================ */
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
