@@ -31,13 +31,12 @@
     <script src="https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/cjs/index.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/markdown-it-emoji@3.0.0/dist/markdown-it-emoji.min.js"></script>
 
-    <!-- ✅ P0 修复：拆分两个 script 标签 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
     <!-- 本地样式 -->
-    <link rel="stylesheet" href="css/main.css?v=2.3.4">
-    <link rel="stylesheet" href="css/theme.css?v=2.3.4">
+    <link rel="stylesheet" href="css/main.css?v=2.3.5">
+    <link rel="stylesheet" href="css/theme.css?v=2.3.5">
 </head>
 <body>
 
@@ -71,11 +70,11 @@
     <div class="main">
         <header class="hdr">
             <button class="menu-btn" onclick="togSB()">☰</button>
-            <input type="text" class="title-in" id="titleIn" placeholder="标题" onchange="updTitle(this.value)">
+            <input type="text" class="title-in" id="titleIn" placeholder="标题（建议改成稿子名，便于存档检索）" onchange="updTitle(this.value)">
             <div class="hdr-acts">
                 <button onclick="openM('cs')" title="会话设置">🎛️</button>
                 <button onclick="openM('exp')" title="导出">📥</button>
-                <button onclick="shareC()" title="分享对话（对方可继续聊天）">🔗</button>
+                <button onclick="shareC()" title="加密分享（仅飞凡AI用户可打开，可选口令）">🔗</button>
                 <button onclick="pinC()" title="置顶" id="pinBtn">📌</button>
                 <button onclick="arcC()" title="归档">📦</button>
                 <button onclick="clrC()" title="清空">🗑️</button>
@@ -89,7 +88,7 @@
                 <div class="ico">🚀</div>
                 <p>开始新的对话吧</p>
                 <p style="font-size:12px;opacity:.6;margin-top:4px">支持拖拽 / 粘贴上传文档与图片</p>
-                <p style="font-size:11px;opacity:.5;margin-top:2px">💡 也可拖入 .feifan-share.json 导入分享的对话</p>
+                <p style="font-size:11px;opacity:.5;margin-top:2px">💡 也可拖入分享文件（.feifan-share.json / .feifan-enc.json）继续对话</p>
             </div>
         </div>
 
@@ -97,7 +96,7 @@
         <div class="drop-mask" id="dropMask">
             <div class="drop-mask-inner">
                 <div style="font-size:48px">📥</div>
-                <div style="font-size:16px;margin-top:8px">松开以上传文件或导入分享对话</div>
+                <div style="font-size:16px;margin-top:8px">松开以上传文件 / 导入分享对话</div>
             </div>
         </div>
 
@@ -135,7 +134,7 @@
 </div>
 
 <!-- ============================================== -->
-<!-- ===== 模态框：⚙️ 引擎配置（1:1 还原原版） ===== -->
+<!-- ===== 模态框：⚙️ 引擎配置 ===================== -->
 <!-- ============================================== -->
 <div class="mo" id="mo-set">
     <div class="md">
@@ -144,6 +143,32 @@
             <button class="md-x" onclick="closeM('set')">×</button>
         </div>
         <div class="md-b">
+
+            <!-- ★ v2.3.5 全局设置：用户名 + 存档目录 -->
+            <div style="padding:12px;background:var(--bg2,rgba(102,126,234,.06));border-radius:10px;margin-bottom:16px">
+                <h4 style="font-size:13px;margin-bottom:10px">👤 全局设置（一次性）</h4>
+
+                <div class="fg" style="margin-bottom:10px">
+                    <label>我的用户名（用于存档文件命名 / 分享署名）</label>
+                    <input type="text" id="userNameIn" placeholder="如：张三" onchange="updUserName(this.value)">
+                </div>
+
+                <div class="fg" style="margin-bottom:6px">
+                    <label>📁 局域网自动存档目录</label>
+                    <div id="archiveInfo" style="font-size:12px;line-height:1.7;margin-bottom:8px"></div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button class="btn btn-s btn-p" onclick="chooseArchiveDir()">📂 选择/更换存档目录</button>
+                        <button class="btn btn-s" onclick="archiveNowBtn()">💾 立即存档一次</button>
+                        <button class="btn btn-s btn-d" onclick="clearArchiveDir()">✖ 关闭存档</button>
+                    </div>
+                    <div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6">
+                        💡 选定共享盘目录后，每小时自动把"有更新的对话"以
+                        <code>标题__用户名__编号.html / .json</code> 写入（同名覆盖，永远最新版）。<br>
+                        ⚠️ 仅 Chrome / Edge 支持；每次重开页面后首次保存需点一下"允许"。
+                    </div>
+                </div>
+            </div>
+
             <!-- 引擎 Tab -->
             <div class="tabs" id="engTabs"></div>
             <button class="btn btn-s" onclick="addEng()" style="margin-bottom:10px">➕ 新增引擎</button>
@@ -177,7 +202,6 @@
                 <input type="file" id="kbIn" multiple onchange="addKB(this)">
                 <div id="kbList" style="margin-top:8px"></div>
             </div>
-
             <div class="fg">
                 <label>⏰ 自动快照间隔</label>
                 <select id="snapInterval" onchange="updSnapInterval(this.value)">
@@ -232,7 +256,7 @@
         </div>
         <div class="md-b">
             <p style="font-size:12px;color:var(--text2);margin-bottom:12px">
-                💡 数据已自动保存在本地 IndexedDB（容量大、稳定）。建议定期导出 JSON 备份到云盘/邮箱，防止设备故障。
+                💡 数据已自动保存在本地 IndexedDB。建议定期导出 JSON 备份到云盘/邮箱，防止设备故障。
             </p>
             <button class="btn btn-p btn-b" onclick="eSnap()" style="margin-bottom:10px">📥 导出全量快照</button>
             <div class="fg">
@@ -255,18 +279,19 @@
 <div class="tc" id="tc"></div>
 
 <!-- 业务脚本 -->
-<script src="js/utils.js?v=2.3.4"></script>
-<script src="js/storage.js?v=2.3.4"></script>
-<script src="js/api.js?v=2.3.4"></script>
-<script src="js/ui.js?v=2.3.4"></script>
-<script src="js/parsers/text.js?v=2.3.4"></script>
-<script src="js/parsers/csv.js?v=2.3.4"></script>
-<script src="js/parsers/office.js?v=2.3.4"></script>
-<script src="js/parsers/pdf.js?v=2.3.4"></script>
-<script src="js/parser.js?v=2.3.4"></script>
-<script src="js/upload.js?v=2.3.4"></script>
-<script src="js/snapshot.js?v=2.3.4"></script>
-<script src="js/app.js?v=2.3.4"></script>
+<script src="js/utils.js?v=2.3.5"></script>
+<script src="js/storage.js?v=2.3.5"></script>
+<script src="js/api.js?v=2.3.5"></script>
+<script src="js/ui.js?v=2.3.5"></script>
+<script src="js/parsers/text.js?v=2.3.5"></script>
+<script src="js/parsers/csv.js?v=2.3.5"></script>
+<script src="js/parsers/office.js?v=2.3.5"></script>
+<script src="js/parsers/pdf.js?v=2.3.5"></script>
+<script src="js/parser.js?v=2.3.5"></script>
+<script src="js/upload.js?v=2.3.5"></script>
+<script src="js/snapshot.js?v=2.3.5"></script>
+<script src="js/archive.js?v=2.3.5"></script>
+<script src="js/app.js?v=2.3.5"></script>
 
 </body>
 </html>
