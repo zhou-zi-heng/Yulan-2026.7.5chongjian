@@ -5,18 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>飞凡AI对话界面</title>
 
-    <!-- Emoji Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
 
-    <!-- PWA -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#667eea">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="飞凡AI对话">
 
-    <!-- 第三方库 CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
@@ -34,17 +31,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
-    <!-- 本地样式 -->
-    <link rel="stylesheet" href="css/main.css?v=2.3.5">
-    <link rel="stylesheet" href="css/theme.css?v=2.3.5">
+    <link rel="stylesheet" href="css/main.css?v=2.3.6">
+    <link rel="stylesheet" href="css/theme.css?v=2.3.6">
 </head>
 <body>
 
 <div class="app">
-    <!-- 移动端遮罩 -->
     <div class="sb-ov" id="sbOv" onclick="togSB()"></div>
 
-    <!-- 侧边栏 -->
     <aside class="sb" id="sb">
         <div class="sb-hdr">
             <h1>🚀 飞凡AI对话</h1>
@@ -66,7 +60,6 @@
         </div>
     </aside>
 
-    <!-- 主内容区 -->
     <div class="main">
         <header class="hdr">
             <button class="menu-btn" onclick="togSB()">☰</button>
@@ -82,7 +75,6 @@
             </div>
         </header>
 
-        <!-- 消息区 -->
         <div class="msgs" id="msgsArea">
             <div class="empty">
                 <div class="ico">🚀</div>
@@ -92,7 +84,6 @@
             </div>
         </div>
 
-        <!-- 拖拽遮罩 -->
         <div class="drop-mask" id="dropMask">
             <div class="drop-mask-inner">
                 <div style="font-size:48px">📥</div>
@@ -100,7 +91,6 @@
             </div>
         </div>
 
-        <!-- 输入区 -->
         <div class="inp-area">
             <div class="inp-wrap">
                 <div style="position:relative">
@@ -133,9 +123,7 @@
     </div>
 </div>
 
-<!-- ============================================== -->
-<!-- ===== 模态框：⚙️ 引擎配置 ===================== -->
-<!-- ============================================== -->
+<!-- 模态框：⚙️ 引擎配置 -->
 <div class="mo" id="mo-set">
     <div class="md">
         <div class="md-h">
@@ -144,7 +132,7 @@
         </div>
         <div class="md-b">
 
-            <!-- ★ v2.3.5 全局设置：用户名 + 存档目录 -->
+            <!-- 全局设置：用户名 + 存档目录 + 存档间隔 -->
             <div style="padding:12px;background:var(--bg2,rgba(102,126,234,.06));border-radius:10px;margin-bottom:16px">
                 <h4 style="font-size:13px;margin-bottom:10px">👤 全局设置（一次性）</h4>
 
@@ -153,7 +141,7 @@
                     <input type="text" id="userNameIn" placeholder="如：张三" onchange="updUserName(this.value)">
                 </div>
 
-                <div class="fg" style="margin-bottom:6px">
+                <div class="fg" style="margin-bottom:10px">
                     <label>📁 局域网自动存档目录</label>
                     <div id="archiveInfo" style="font-size:12px;line-height:1.7;margin-bottom:8px"></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -161,22 +149,31 @@
                         <button class="btn btn-s" onclick="archiveNowBtn()">💾 立即存档一次</button>
                         <button class="btn btn-s btn-d" onclick="clearArchiveDir()">✖ 关闭存档</button>
                     </div>
-                    <div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6">
-                        💡 选定共享盘目录后，每小时自动把"有更新的对话"以
-                        <code>标题__用户名__编号.html / .json</code> 写入（同名覆盖，永远最新版）。<br>
-                        ⚠️ 仅 Chrome / Edge 支持；每次重开页面后首次保存需点一下"允许"。
-                    </div>
+                </div>
+
+                <div class="fg" style="margin-bottom:6px">
+                    <label>⏱️ 自动存档间隔</label>
+                    <select id="archiveIntervalSel" onchange="updArchiveInterval(this.value)">
+                        <option value="0">关闭定时（仅回复后存）</option>
+                        <option value="5">5 分钟</option>
+                        <option value="10" selected>10 分钟（默认）</option>
+                        <option value="15">15 分钟</option>
+                        <option value="60">1 小时</option>
+                    </select>
+                </div>
+
+                <div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6">
+                    💡 选定共享盘目录后，按上方间隔 + AI回复停笔1分钟后，自动把"有变动的对话"以
+                    <code>标题__用户名__编号.html / .json</code> 写入（同名覆盖，永远最新版）。<br>
+                    ⚠️ 仅 Chrome / Edge 支持；每次重开页面后首次保存需点一下"允许"。
                 </div>
             </div>
 
-            <!-- 引擎 Tab -->
             <div class="tabs" id="engTabs"></div>
             <button class="btn btn-s" onclick="addEng()" style="margin-bottom:10px">➕ 新增引擎</button>
 
-            <!-- 引擎表单 -->
             <div id="engForm"></div>
 
-            <!-- 存储信息 -->
             <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
                 <h4 style="font-size:13px;margin-bottom:8px">💾 本地存储</h4>
                 <div id="storageInfo" style="font-size:12px;color:var(--text2);line-height:1.8"></div>
@@ -270,28 +267,25 @@
     </div>
 </div>
 
-<!-- 图片灯箱 -->
 <div class="lightbox" id="lightbox" onclick="this.classList.remove('show')">
     <img id="lbImg" src="">
 </div>
 
-<!-- Toast -->
 <div class="tc" id="tc"></div>
 
-<!-- 业务脚本 -->
-<script src="js/utils.js?v=2.3.5"></script>
-<script src="js/storage.js?v=2.3.5"></script>
-<script src="js/api.js?v=2.3.5"></script>
-<script src="js/ui.js?v=2.3.5"></script>
-<script src="js/parsers/text.js?v=2.3.5"></script>
-<script src="js/parsers/csv.js?v=2.3.5"></script>
-<script src="js/parsers/office.js?v=2.3.5"></script>
-<script src="js/parsers/pdf.js?v=2.3.5"></script>
-<script src="js/parser.js?v=2.3.5"></script>
-<script src="js/upload.js?v=2.3.5"></script>
-<script src="js/snapshot.js?v=2.3.5"></script>
-<script src="js/archive.js?v=2.3.5"></script>
-<script src="js/app.js?v=2.3.5"></script>
+<script src="js/utils.js?v=2.3.6"></script>
+<script src="js/storage.js?v=2.3.6"></script>
+<script src="js/api.js?v=2.3.6"></script>
+<script src="js/ui.js?v=2.3.6"></script>
+<script src="js/parsers/text.js?v=2.3.6"></script>
+<script src="js/parsers/csv.js?v=2.3.6"></script>
+<script src="js/parsers/office.js?v=2.3.6"></script>
+<script src="js/parsers/pdf.js?v=2.3.6"></script>
+<script src="js/parser.js?v=2.3.6"></script>
+<script src="js/upload.js?v=2.3.6"></script>
+<script src="js/snapshot.js?v=2.3.6"></script>
+<script src="js/archive.js?v=2.3.6"></script>
+<script src="js/app.js?v=2.3.6"></script>
 
 </body>
 </html>
