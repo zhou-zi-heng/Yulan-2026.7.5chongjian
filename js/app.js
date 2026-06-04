@@ -1,5 +1,5 @@
-/* ===== 飞凡AI - 主入口 (v2.3.5) ===== */
-/* v2.3.5: 加密分享 + 用户名 + 局域网自动存档 */
+/* ===== 飞凡AI - 主入口 (v2.3.6) ===== */
+/* v2.3.6: 存档间隔可配置 + 回复后防抖存档 + 内容指纹检测 */
 
 /* ============================================================
    ===== 全局状态 ==============================================
@@ -12,7 +12,8 @@ let S = {
     currentEngId: 'zenmux',
     theme: 'light',
     snapInterval: 5,
-    userName: '',   // ★ v2.3.5 用户名（跟随快照迁移）
+    userName: '',
+    archiveInterval: 10,   // ★ v2.3.6 存档间隔（分钟）
 };
 
 let _saveTimer = null;
@@ -41,7 +42,7 @@ async function loadState() {
         S = Object.assign({
             profiles: {}, chats: {}, chatOrder: [],
             currentChatId: null, currentEngId: 'zenmux',
-            theme: 'light', snapInterval: 5, userName: '',
+            theme: 'light', snapInterval: 5, userName: '', archiveInterval: 10,
         }, loaded);
 
         if (!S.chatOrder || !S.chatOrder.length) {
@@ -178,19 +179,17 @@ function clrC() {
 }
 
 /* ============================================================
-   ===== 分享对话 (v2.3.5：加密 + 可选口令) ====================
+   ===== 分享对话（加密 + 可选口令） ===========================
    ============================================================ */
 async function shareC() {
     const c = curChat();
     if (!c) { toast('请先选择一个对话', 'er'); return; }
     if (!c.messages || !c.messages.length) { toast('对话为空，无法分享', 'er'); return; }
 
-    // 是否包含知识库
     const includeKB = (c.knowledgeBase && c.knowledgeBase.length > 0)
         ? confirm('是否包含知识库文件？\n\n✅ 确定 = 包含\n❌ 取消 = 不包含（文件更小）')
         : false;
 
-    // 是否设置访问口令（可选）
     let password = '';
     if (Snapshot.SUPPORTS_CRYPTO) {
         const wantPwd = confirm(
@@ -200,11 +199,8 @@ async function shareC() {
         );
         if (wantPwd) {
             const pwd = prompt('请输入访问口令（请记住并告知接收方）：', '');
-            if (pwd && pwd.trim()) {
-                password = pwd.trim();
-            } else {
-                toast('未输入口令，将仅用应用密钥加密');
-            }
+            if (pwd && pwd.trim()) password = pwd.trim();
+            else toast('未输入口令，将仅用应用密钥加密');
         }
     }
 
@@ -552,11 +548,13 @@ function delEng() {
 }
 
 /* ============================================================
-   ===== 全局设置：用户名 + 存档目录 (v2.3.5) =================
+   ===== 全局设置：用户名 + 存档目录 + 存档间隔 ===============
    ============================================================ */
 function renderGlobalSettings() {
     const uIn = document.getElementById('userNameIn');
     if (uIn) uIn.value = S.userName || '';
+    const ai = document.getElementById('archiveIntervalSel');
+    if (ai) ai.value = String(S.archiveInterval !== undefined ? S.archiveInterval : 10);
     renderArchiveInfo();
 }
 
@@ -569,19 +567,27 @@ function renderArchiveInfo() {
     }
     if (Archive.isEnabled()) {
         el.innerHTML = '✅ 已开启自动存档<br>目录：<strong>' + esc(Archive.getDirName()) + '</strong>'
-            + '<br><span style="font-size:11px;color:var(--text2)">每小时自动保存有更新的对话（HTML + JSON）</span>';
+            + '<br><span style="font-size:11px;color:var(--text2)">每 ' + (S.archiveInterval || 10)
+            + ' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话（HTML + JSON）</span>';
     } else {
         el.innerHTML = '<span style="color:var(--text2)">未设置存档目录（设置后将自动备份对话到局域网共享目录）</span>';
     }
+}
+
+function updArchiveInterval(v) {
+    S.archiveInterval = parseInt(v, 10) || 0;
+    scheduleSave();
+    if (typeof Archive !== 'undefined') Archive.setInterval(S.archiveInterval);
+    renderArchiveInfo();
+    toast('存档间隔：' + (S.archiveInterval ? S.archiveInterval + ' 分钟' : '关闭定时（仅回复后存）'));
 }
 
 async function chooseArchiveDir() {
     if (typeof Archive === 'undefined') return;
     const ok = await Archive.chooseDir();
     if (ok) {
-        Archive.startHourly();
+        Archive.setInterval(S.archiveInterval || 10);
         renderArchiveInfo();
-        // 立即存一次
         await Archive.archiveAll({ silent: false });
     }
 }
@@ -589,7 +595,6 @@ async function chooseArchiveDir() {
 async function clearArchiveDir() {
     if (typeof Archive === 'undefined') return;
     if (!confirm('确认关闭自动存档？（已存档的文件不会被删除）')) return;
-    Archive.stopHourly();
     await Archive.clearDir();
     renderArchiveInfo();
 }
@@ -757,6 +762,8 @@ async function send() {
             await saveNow();
             renderMs();
             renderSB();
+            // ★ v2.3.6：AI 回复完成 → 触发存档防抖（停笔1分钟后落盘）
+            if (typeof Archive !== 'undefined') Archive.notifyActivity();
         },
         onAbort: async (full) => {
             aiMsg.content = full;
@@ -769,6 +776,7 @@ async function send() {
             await saveNow();
             renderMs();
             toast('已停止');
+            if (typeof Archive !== 'undefined') Archive.notifyActivity();
         },
         onError: async (err) => {
             console.error('[Send] 错误', err);
@@ -842,7 +850,6 @@ function togAtt() { document.getElementById('attPan').classList.toggle('show'); 
 function updAttCont() { _attContinuous = document.getElementById('attCont').checked; }
 function onAtt(inputEl) { Upload.fromInput(inputEl); }
 
-/* 导入分享对话（统一处理，支持加密 + 口令重试） */
 async function _importShareFile(file) {
     let password = '';
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -860,9 +867,8 @@ async function _importShareFile(file) {
         } catch (e) {
             if (e.code === 'NEED_PASSWORD' || /口令/.test(e.message)) {
                 const pwd = prompt(
-                    attempt === 0
-                        ? '该分享文件已加密，请输入访问口令：'
-                        : '口令错误，请重新输入（剩余 ' + (3 - attempt) + ' 次）：',
+                    attempt === 0 ? '该分享文件已加密，请输入访问口令：'
+                                  : '口令错误，请重新输入（剩余 ' + (3 - attempt) + ' 次）：',
                     ''
                 );
                 if (pwd === null) { toast('已取消导入'); return; }
@@ -886,7 +892,6 @@ async function handleUploadedFiles(files) {
     for (const jf of jsonFiles) {
         try {
             const fileType = await Snapshot.detectFileType(jf);
-
             if (fileType === 'share' || fileType === 'enc' || fileType === 'enc-pwd') {
                 await _importShareFile(jf);
                 continue;
@@ -933,7 +938,6 @@ async function handleUploadedFiles(files) {
 
     if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
     renderAttList();
-    /* ★ Bug修复：拖拽/粘贴上传后不再强制打开附件面板 */
 }
 
 function renderAttList() {
@@ -1096,7 +1100,6 @@ function updExp() {
     updExpPreview();
 }
 
-/* 生成导出内容（chat 可选，默认当前对话；archive.js 复用此函数生成 HTML） */
 function buildExportContent(chatArg, modeArg) {
     const c = chatArg || curChat();
     const mode = modeArg || _exportMode;
@@ -1134,7 +1137,6 @@ function buildExportContent(chatArg, modeArg) {
     return { plain: plain.trim(), html: html, title: title };
 }
 
-/* 给 archive.js 用：生成完整 HTML 文档字符串 */
 function buildArchiveHtml(chat) {
     const { html, title } = buildExportContent(chat, 'full');
     return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'
@@ -1247,6 +1249,8 @@ async function initArchive() {
     await Archive.init({
         getState: () => S,
         buildHtml: (chat) => buildArchiveHtml(chat),
+        intervalMin: S.archiveInterval !== undefined ? S.archiveInterval : 10,
+        debounceMin: 1,
     });
     console.log('[Archive] 已挂载');
 }
@@ -1263,13 +1267,11 @@ async function checkURLImport() {
         const resp = await fetch(shareUrl);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const raw = await resp.json();
-
         let password = '';
         if (raw && raw.__feifan_enc__ && raw.hasPassword) {
             const pwd = prompt('该分享已加密，请输入访问口令：', '');
             password = pwd ? pwd.trim() : '';
         }
-
         const result = await Snapshot.normalizeSharedObject(raw, password);
         const chat = result.chat;
         S.chats[chat.id] = chat;
