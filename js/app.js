@@ -1070,6 +1070,14 @@ async function iSnap(inputEl) {
         '✨ 两种模式都会智能保护你本地已有的 API Key'
     );
     try {
+        // ★ 导入前自动备份当前数据（可回滚）
+        await DB.setSetting('pre_import_backup', {
+            state: JSON.parse(JSON.stringify(S)),
+            time: Date.now(),
+            reason: mode ? 'replace' : 'merge',
+        });
+        console.log('[Snapshot] 已自动备份当前数据（可通过"恢复"按钮回滚）');
+
         const { state: importedState, source } = await Snapshot.importFromFile(file);
         let finalState;
         if (mode) {
@@ -1095,6 +1103,7 @@ async function iSnap(inputEl) {
     }
     inputEl.value = '';
 }
+
 
 /* ============================================================
    ===== 恢复导入前的备份 ======================================
