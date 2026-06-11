@@ -1097,6 +1097,37 @@ async function iSnap(inputEl) {
 }
 
 /* ============================================================
+   ===== 恢复导入前的备份 ======================================
+   ============================================================ */
+async function restorePreImport() {
+    try {
+        const backup = await DB.getSetting('pre_import_backup', null);
+        if (!backup || !backup.state) {
+            toast('没有可恢复的备份', 'er');
+            return;
+        }
+        const timeStr = new Date(backup.time).toLocaleString();
+        if (!confirm(
+            '⚠️ 确认恢复到上次导入前的状态？\n\n' +
+            '备份时间：' + timeStr + '\n' +
+            '当时操作：' + (backup.reason === 'replace' ? '替换导入' : '合并导入') + '\n\n' +
+            '恢复后当前数据将被覆盖！'
+        )) return;
+
+        S = backup.state;
+        if (!S.profiles[S.currentEngId]) S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
+        await saveNow();
+        await Snapshot.snapNow(S);
+        renderAll();
+        toast('✅ 已恢复到导入前的状态（' + timeStr + '）');
+        closeM('snap');
+    } catch (e) {
+        console.error('[Restore]', e);
+        toast('恢复失败：' + e.message, 'er');
+    }
+}
+
+/* ============================================================
    ===== 对话导出 ==============================================
    ============================================================ */
 function updExp() {
