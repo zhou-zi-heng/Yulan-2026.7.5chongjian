@@ -287,10 +287,22 @@
                 <label>📂 导入快照（兼容所有历史版本）</label>
                 <input type="file" accept=".json" onchange="iSnap(this)">
             </div>
+
+            <!-- ★ 恢复按钮 -->
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+                <button class="btn btn-s" onclick="restorePreImport()" style="color:#e53e3e">
+                    ⏪ 恢复到上次导入前的数据
+                </button>
+                <div style="font-size:11px;color:var(--text2);margin-top:6px">
+                    如果刚才的导入搞错了，可以一键回滚（仅保留最近一次导入前的备份）
+                </div>
+            </div>
+
             <div id="iosW" style="display:none;padding:10px;background:#fff3cd;border-radius:8px;font-size:12px;color:#856404;margin-top:10px">
                 ⚠️ iOS Safari 可能自动清理数据，请定期导出快照。
             </div>
         </div>
+
     </div>
 </div>
 
