@@ -120,6 +120,11 @@ const Archive = (function () {
             _dirHandle = handle;
             _permissionOK = true;
             await DB.saveDirHandle(handle);
+
+            // ★ 换目录后清空指纹基线，让新目录重新全量存档
+            _archiveSigs = {};
+            try { await DB.setSetting('archive_sigs', _archiveSigs); } catch (e) {}
+
             toast('✅ 存档目录已设置：' + (handle.name || '已选定'));
             return true;
         } catch (e) {
@@ -129,6 +134,7 @@ const Archive = (function () {
             return false;
         }
     }
+
 
     async function restoreDir() {
         if (!SUPPORTS_FSA) return false;
