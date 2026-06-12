@@ -1,17 +1,18 @@
-/* ===== ZenMux 工具函数库 (v2.3.8) ===== */
-/* v2.3.8: cntW 精准对齐 WPS/Word "字数" 口径
-   = 汉字 + 中文标点 + 英文单词(连续字母算1) + 数字串(连续数字算1)
-   清洗 Markdown 格式符号、排除代码块；空格/英文标点/格式符号不计 */
+/* ===== ZenMux 工具函数库 ===== */
+/* 全部挂在 window 上，全局可用，与原代码兼容 */
 
 const APP_VERSION = '2.0.0';
 
 /* ---------- 通用工具 ---------- */
+
+// 生成唯一 ID
 function gId() {
     return crypto.randomUUID
         ? crypto.randomUUID()
         : Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+// HTML 转义
 function esc(t) {
     if (t === null || t === undefined) return '';
     const d = document.createElement('div');
@@ -99,65 +100,99 @@ function cntDetail(t) {
     };
 }
 
-/* ---------- JSON 安全解析 ---------- */
-function safeJSON(str, fallback) {
-    try { return JSON.parse(str); }
-    catch (e) { return fallback !== undefined ? fallback : null; }
-}
-
-/* ---------- 时间格式化 ---------- */
+// 当前时间 HH:MM
 function nowTime() {
     const d = new Date();
-    const pad = (n) => (n < 10 ? '0' + n : '' + n);
-    return pad(d.getHours()) + ':' + pad(d.getMinutes());
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
 }
 
-/* ---------- 文件大小格式化 ---------- */
+// 文件大小格式化
 function fmtSize(bytes) {
-    if (!bytes || bytes < 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    if (!bytes) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB'];
     let i = 0;
-    let n = bytes;
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return n.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
-}
-
-/* ---------- 下载文件 ---------- */
-function dl(content, filename, mime) {
-    const blob = (content instanceof Blob)
-        ? content
-        : new Blob([content], { type: (mime || 'text/plain') + ';charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    while (bytes >= 1024 && i < u.length - 1) { bytes /= 1024; i++; }
+    return bytes.toFixed(i ? 1 : 0) + ' ' + u[i];
 }
 
 /* ---------- Toast 提示 ---------- */
-let _toastTimer = null;
 function toast(msg, type) {
-    const tc = document.getElementById('tc');
-    if (!tc) { console.log('[toast]', msg); return; }
-    const el = document.createElement('div');
-    el.className = 'toast' + (type === 'er' ? ' er' : (type === 'ok' ? ' ok' : ''));
-    el.textContent = msg;
-    tc.appendChild(el);
-    setTimeout(() => {
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(-8px)';
-        setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
-    }, 2600);
+    if (!type) type = 'ok';
+    const c = document.getElementById('tc');
+    if (!c) { console.log('[toast]', msg); return; }
+    const t = document.createElement('div');
+    t.className = 'tt ' + type;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 2500);
 }
 
-/* ---------- 环境检测 ---------- */
-const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-                  || (window.innerWidth <= 768);
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-               || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const SUPPORTS_INDEXEDDB = (function () {
-    try { return !!window.indexedDB; } catch (e) { return false; }
-})();
+/* ---------- 文件下载 ---------- */
+function dl(content, filename, mime) {
+    const b = new Blob([content], { type: mime + ';charset=utf-8' });
+    const u = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = u; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(u);
+}
+
+/* ---------- 防抖与节流 ---------- */
+function debounce(fn, delay) {
+    let timer;
+    return function (...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+function throttle(fn, interval) {
+    let last = 0, timer;
+    return function (...args) {
+        const now = Date.now();
+        const remain = interval - (now - last);
+        if (remain <= 0) {
+            clearTimeout(timer);
+            last = now;
+            fn.apply(this, args);
+        } else if (!timer) {
+            timer = setTimeout(() => {
+                last = Date.now();
+                timer = null;
+                fn.apply(this, args);
+            }, remain);
+        }
+    };
+}
+
+/* ---------- requestAnimationFrame 节流（用于流式渲染） ---------- */
+function rafThrottle(fn) {
+    let scheduled = false, lastArgs;
+    return function (...args) {
+        lastArgs = args;
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+            scheduled = false;
+            fn.apply(this, lastArgs);
+        });
+    };
+}
+
+/* ---------- 设备/环境检测 ---------- */
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const IS_MOBILE = window.innerWidth <= 768 || /Mobi|Android/i.test(navigator.userAgent);
+const SUPPORTS_INDEXEDDB = 'indexedDB' in window;
+
+/* ---------- 简单的 Promise sleep ---------- */
+function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+
+/* ---------- 安全 JSON 解析 ---------- */
+function safeJSON(str, fallback) {
+    if (fallback === undefined) fallback = null;
+    try { return JSON.parse(str); }
+    catch (e) { return fallback; }
+}
