@@ -1,1273 +1,523 @@
-/* ===== 飞凡AI - 主入口 (v2.4.0) ===== */
-/* v2.4.0: 工作流模式（内置隐藏指令、预设库、模式切换） */
+/* ===== 飞凡AI - 主入口 (v2.4.1) ===== */
+/* v2.4.1: 工作流步骤支持多片段（隐藏段+输入框交替拼接） */
 
-/* ============================================================
-   ===== 全局状态 ==============================================
-   ============================================================ */
 let S = {
-    profiles: {},
-    chats: {},
-    chatOrder: [],
-    currentChatId: null,
-    currentEngId: 'zenmux',
-    theme: 'light',
-    snapInterval: 5,
-    userName: '',
-    archiveInterval: 10,
-    uiMode: 'chat',          // ★ v2.4.0 'chat' | 'workflow'
+    profiles: {}, chats: {}, chatOrder: [], currentChatId: null,
+    currentEngId: 'zenmux', theme: 'light', snapInterval: 5,
+    userName: '', archiveInterval: 10, uiMode: 'chat',
 };
 
-let _saveTimer = null;
-let _saveInProgress = null;
-let _streamCtrl = null;
-let _pendingAtts = [];
-let _attContinuous = false;
-let _exportMode = 'full';
+let _saveTimer=null,_saveInProgress=null,_streamCtrl=null,_pendingAtts=[],_attContinuous=false,_exportMode='full';
+let _wfGroup='__all__',_wfPresetId=null;
 
-/* ★ v2.4.0 工作流当前选择 */
-let _wfGroup = '__all__';
-let _wfPresetId = null;
-
-/* ============================================================
-   ===== 持久化 ================================================
-   ============================================================ */
-function scheduleSave() {
-    if (_saveTimer) clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(saveNow, 300);
-}
-async function saveNow() {
-    if (_saveInProgress) { await _saveInProgress; return; }
-    _saveInProgress = DB.saveState(S);
-    try { await _saveInProgress; }
-    finally { _saveInProgress = null; }
-}
-async function loadState() {
-    const loaded = await DB.loadState();
-    if (loaded && typeof loaded === 'object') {
-        S = Object.assign({
-            profiles: {}, chats: {}, chatOrder: [],
-            currentChatId: null, currentEngId: 'zenmux',
-            theme: 'light', snapInterval: 5, userName: '', archiveInterval: 10,
-            uiMode: 'chat',
-        }, loaded);
-
-        if (!S.chatOrder || !S.chatOrder.length) {
-            S.chatOrder = Object.keys(S.chats || {}).sort((a, b) =>
-                (S.chats[b].updatedAt || 0) - (S.chats[a].updatedAt || 0));
-        }
-        for (const cid in S.chats) {
-            const c = S.chats[cid];
-            if (c.messages) {
-                c.messages.forEach(m => {
-                    if (m._streaming) { m._streaming = false; m._interrupted = true; }
-                });
-            }
-        }
+function scheduleSave(){ if(_saveTimer)clearTimeout(_saveTimer); _saveTimer=setTimeout(saveNow,300); }
+async function saveNow(){ if(_saveInProgress){await _saveInProgress;return;} _saveInProgress=DB.saveState(S); try{await _saveInProgress;}finally{_saveInProgress=null;} }
+async function loadState(){
+    const loaded=await DB.loadState();
+    if(loaded&&typeof loaded==='object'){
+        S=Object.assign({profiles:{},chats:{},chatOrder:[],currentChatId:null,currentEngId:'zenmux',theme:'light',snapInterval:5,userName:'',archiveInterval:10,uiMode:'chat'},loaded);
+        if(!S.chatOrder||!S.chatOrder.length) S.chatOrder=Object.keys(S.chats||{}).sort((a,b)=>(S.chats[b].updatedAt||0)-(S.chats[a].updatedAt||0));
+        for(const cid in S.chats){const c=S.chats[cid];if(c.messages)c.messages.forEach(m=>{if(m._streaming){m._streaming=false;m._interrupted=true;}});}
     }
-    if (!S.profiles || !Object.keys(S.profiles).length) {
-        S.profiles = JSON.parse(JSON.stringify(API.DEFAULT_PROFILES));
+    if(!S.profiles||!Object.keys(S.profiles).length) S.profiles=JSON.parse(JSON.stringify(API.DEFAULT_PROFILES));
+    for(const id in S.profiles){const p=S.profiles[id];
+        if(p.useTemp===undefined)p.useTemp=true;if(p.useMax===undefined)p.useMax=true;if(p.useTopP===undefined)p.useTopP=false;if(p.useFreq===undefined)p.useFreq=false;
+        if(p.temperature===undefined)p.temperature=0.7;if(p.max_tokens===undefined)p.max_tokens=4096;if(p.top_p===undefined)p.top_p=1;if(p.frequency_penalty===undefined)p.frequency_penalty=0;}
+    if(!S.profiles[S.currentEngId]) S.currentEngId=Object.keys(S.profiles)[0]||'zenmux';
+    if(S.theme==='dark'){document.documentElement.setAttribute('data-theme','dark');const tb=document.getElementById('themeBtn');if(tb)tb.textContent='☀️';}
+}
+
+function curChat(){ return S.currentChatId?(S.chats[S.currentChatId]||null):null; }
+function curProfile(){ return S.profiles[S.currentEngId]||S.profiles[Object.keys(S.profiles)[0]]; }
+
+function newChat(){
+    const id=gId();
+    S.chats[id]={id:id,title:'新对话',messages:[],systemPrompt:'',knowledgeBase:[],isPinned:false,isArchived:false,createdAt:Date.now(),updatedAt:Date.now()};
+    S.chatOrder.unshift(id);S.currentChatId=id;scheduleSave();renderAll();
+    if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}
+}
+function switchChat(id){if(!S.chats[id])return;S.currentChatId=id;scheduleSave();renderAll();if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}}
+function delChat(id){if(!confirm('确认删除此对话？'))return;delete S.chats[id];S.chatOrder=S.chatOrder.filter(x=>x!==id);if(S.currentChatId===id)S.currentChatId=S.chatOrder[0]||null;scheduleSave();renderAll();}
+function renameChat(id){const c=S.chats[id];if(!c)return;const nv=prompt('重命名对话：',c.title);if(nv&&nv.trim()){c.title=nv.trim();c.updatedAt=Date.now();scheduleSave();renderAll();}}
+function updTitle(v){const c=curChat();if(!c)return;c.title=(v||'').trim()||'新对话';c.updatedAt=Date.now();scheduleSave();renderSB();}
+function pinC(){const c=curChat();if(!c)return;c.isPinned=!c.isPinned;c.updatedAt=Date.now();scheduleSave();renderAll();toast(c.isPinned?'已置顶':'已取消置顶');}
+function arcC(){const c=curChat();if(!c)return;c.isArchived=!c.isArchived;c.updatedAt=Date.now();scheduleSave();renderAll();toast(c.isArchived?'已归档':'已取消归档');}
+function clrC(){const c=curChat();if(!c)return;if(!confirm('清空当前对话所有消息？'))return;c.messages=[];c.updatedAt=Date.now();scheduleSave();renderMs();}
+
+async function shareC(){
+    const c=curChat();if(!c){toast('请先选择一个对话','er');return;}
+    if(!c.messages||!c.messages.length){toast('对话为空，无法分享','er');return;}
+    const includeKB=(c.knowledgeBase&&c.knowledgeBase.length>0)?confirm('是否包含知识库文件？\n\n✅ 确定 = 包含\n❌ 取消 = 不包含'):false;
+    let password='';
+    if(Snapshot.SUPPORTS_CRYPTO){
+        const wantPwd=confirm('是否设置访问口令？\n\n✅ 确定 = 设口令（对方需输入）\n❌ 取消 = 不设（仅飞凡AI用户可打开）');
+        if(wantPwd){const pwd=prompt('请输入访问口令：','');if(pwd&&pwd.trim())password=pwd.trim();else toast('未输入口令，仅用应用密钥加密');}
     }
-    for (const id in S.profiles) {
-        const p = S.profiles[id];
-        if (p.useTemp === undefined) p.useTemp = true;
-        if (p.useMax === undefined) p.useMax = true;
-        if (p.useTopP === undefined) p.useTopP = false;
-        if (p.useFreq === undefined) p.useFreq = false;
-        if (p.temperature === undefined) p.temperature = 0.7;
-        if (p.max_tokens === undefined) p.max_tokens = 4096;
-        if (p.top_p === undefined) p.top_p = 1;
-        if (p.frequency_penalty === undefined) p.frequency_penalty = 0;
-    }
-    if (!S.profiles[S.currentEngId]) {
-        S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
-    }
-    if (S.theme === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        const tb = document.getElementById('themeBtn');
-        if (tb) tb.textContent = '☀️';
-    }
+    await Snapshot.shareChat(c,{includeKB:includeKB,sharedBy:S.userName||'',encrypt:true,password:password});
 }
 
-/* ============================================================
-   ===== 当前会话/引擎 =========================================
-   ============================================================ */
-function curChat() {
-    if (!S.currentChatId) return null;
-    return S.chats[S.currentChatId] || null;
-}
-function curProfile() {
-    const eid = S.currentEngId;
-    return S.profiles[eid] || S.profiles[Object.keys(S.profiles)[0]];
-}
+function togTheme(){S.theme=S.theme==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',S.theme==='dark'?'dark':'');document.getElementById('themeBtn').textContent=S.theme==='dark'?'☀️':'🌙';scheduleSave();}
+function updUserName(v){S.userName=(v||'').trim();scheduleSave();}
 
-/* ============================================================
-   ===== 会话管理 ==============================================
-   ============================================================ */
-function newChat() {
-    const id = gId();
-    S.chats[id] = {
-        id: id, title: '新对话', messages: [], systemPrompt: '',
-        knowledgeBase: [], isPinned: false, isArchived: false,
-        createdAt: Date.now(), updatedAt: Date.now(),
-    };
-    S.chatOrder.unshift(id);
-    S.currentChatId = id;
-    scheduleSave();
-    renderAll();
-    if (IS_MOBILE) {
-        document.getElementById('sb').classList.remove('open');
-        document.getElementById('sbOv').classList.remove('show');
-    }
+/* ===== 模式切换 + 工作流 ===== */
+function setMode(mode){S.uiMode=(mode==='workflow')?'workflow':'chat';scheduleSave();renderMode();}
+function renderMode(){
+    const isWf=S.uiMode==='workflow';
+    const wfBar=document.getElementById('wfBar');
+    if(wfBar)wfBar.style.display=isWf?'block':'none';
+    const cb=document.getElementById('modeChatBtn'),wb=document.getElementById('modeWfBtn');
+    if(cb)cb.classList.toggle('act',!isWf);
+    if(wb)wb.classList.toggle('act',isWf);
+    if(isWf)renderWorkflow();
 }
-function switchChat(id) {
-    if (!S.chats[id]) return;
-    S.currentChatId = id;
-    scheduleSave();
-    renderAll();
-    if (IS_MOBILE) {
-        document.getElementById('sb').classList.remove('open');
-        document.getElementById('sbOv').classList.remove('show');
-    }
-}
-function delChat(id) {
-    if (!confirm('确认删除此对话？')) return;
-    delete S.chats[id];
-    S.chatOrder = S.chatOrder.filter(x => x !== id);
-    if (S.currentChatId === id) S.currentChatId = S.chatOrder[0] || null;
-    scheduleSave();
-    renderAll();
-}
-function renameChat(id) {
-    const c = S.chats[id];
-    if (!c) return;
-    const nv = prompt('重命名对话：', c.title);
-    if (nv && nv.trim()) {
-        c.title = nv.trim();
-        c.updatedAt = Date.now();
-        scheduleSave();
-        renderAll();
-    }
-}
-function updTitle(v) {
-    const c = curChat();
-    if (!c) return;
-    c.title = (v || '').trim() || '新对话';
-    c.updatedAt = Date.now();
-    scheduleSave();
-    renderSB();
-}
-function pinC() {
-    const c = curChat();
-    if (!c) return;
-    c.isPinned = !c.isPinned;
-    c.updatedAt = Date.now();
-    scheduleSave();
-    renderAll();
-    toast(c.isPinned ? '已置顶' : '已取消置顶');
-}
-function arcC() {
-    const c = curChat();
-    if (!c) return;
-    c.isArchived = !c.isArchived;
-    c.updatedAt = Date.now();
-    scheduleSave();
-    renderAll();
-    toast(c.isArchived ? '已归档' : '已取消归档');
-}
-function clrC() {
-    const c = curChat();
-    if (!c) return;
-    if (!confirm('清空当前对话所有消息？')) return;
-    c.messages = [];
-    c.updatedAt = Date.now();
-    scheduleSave();
-    renderMs();
-}
-
-/* ============================================================
-   ===== 分享对话（加密 + 可选口令） ===========================
-   ============================================================ */
-async function shareC() {
-    const c = curChat();
-    if (!c) { toast('请先选择一个对话', 'er'); return; }
-    if (!c.messages || !c.messages.length) { toast('对话为空，无法分享', 'er'); return; }
-
-    const includeKB = (c.knowledgeBase && c.knowledgeBase.length > 0)
-        ? confirm('是否包含知识库文件？\n\n✅ 确定 = 包含\n❌ 取消 = 不包含（文件更小）')
-        : false;
-
-    let password = '';
-    if (Snapshot.SUPPORTS_CRYPTO) {
-        const wantPwd = confirm(
-            '是否设置访问口令？\n\n' +
-            '✅ 确定 = 设置口令（对方需输入口令才能打开，最安全）\n' +
-            '❌ 取消 = 不设口令（仅飞凡AI用户可打开，外人是乱码）'
-        );
-        if (wantPwd) {
-            const pwd = prompt('请输入访问口令（请记住并告知接收方）：', '');
-            if (pwd && pwd.trim()) password = pwd.trim();
-            else toast('未输入口令，将仅用应用密钥加密');
-        }
-    }
-
-    await Snapshot.shareChat(c, {
-        includeKB: includeKB, sharedBy: S.userName || '',
-        encrypt: true, password: password,
-    });
-}
-
-/* ============================================================
-   ===== 主题 / 用户名 =========================================
-   ============================================================ */
-function togTheme() {
-    S.theme = S.theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', S.theme === 'dark' ? 'dark' : '');
-    document.getElementById('themeBtn').textContent = S.theme === 'dark' ? '☀️' : '🌙';
-    scheduleSave();
-}
-function updUserName(v) {
-    S.userName = (v || '').trim();
-    scheduleSave();
-}
-
-/* ============================================================
-   ===== v2.4.0 模式切换 + 工作流 =============================
-   ============================================================ */
-function setMode(mode) {
-    S.uiMode = (mode === 'workflow') ? 'workflow' : 'chat';
-    scheduleSave();
-    renderMode();
-}
-
-function renderMode() {
-    const isWf = S.uiMode === 'workflow';
-    const wfBar = document.getElementById('wfBar');
-    const chatBtnMode = document.getElementById('modeChatBtn');
-    const wfBtnMode = document.getElementById('modeWfBtn');
-    if (wfBar) wfBar.style.display = isWf ? 'block' : 'none';
-    if (chatBtnMode) chatBtnMode.classList.toggle('act', !isWf);
-    if (wfBtnMode) wfBtnMode.classList.toggle('act', isWf);
-    if (isWf) renderWorkflow();
-}
-
-/* 渲染工作流栏：分组下拉 + 搜索 + 预设下拉 + 指令列表 */
-function renderWorkflow() {
-    if (typeof Workflow === 'undefined' || !Workflow.isLoaded()) {
-        const box = document.getElementById('wfCmds');
-        if (box) box.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px">⚠️ 预设库未加载（presets.json）</div>';
+function renderWorkflow(){
+    if(typeof Workflow==='undefined'||!Workflow.isLoaded()){
+        const box=document.getElementById('wfCmds');
+        if(box)box.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">⚠️ 预设库未加载（presets.json）</div>';
         return;
     }
-
-    // 分组下拉
-    const grpSel = document.getElementById('wfGroupSel');
-    if (grpSel && !grpSel.dataset.filled) {
-        const groups = Workflow.getGroups();
-        grpSel.innerHTML = '<option value="__all__">全部分组</option>'
-            + groups.map(g => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('');
-        grpSel.dataset.filled = '1';
+    const grpSel=document.getElementById('wfGroupSel');
+    if(grpSel&&!grpSel.dataset.filled){
+        const groups=Workflow.getGroups();
+        grpSel.innerHTML='<option value="__all__">全部分组</option>'+groups.map(g=>'<option value="'+esc(g)+'">'+esc(g)+'</option>').join('');
+        grpSel.dataset.filled='1';
     }
+    const kw=(document.getElementById('wfSearch')?document.getElementById('wfSearch').value:'')||'';
+    const presets=Workflow.getPresets(_wfGroup,kw);
+    const psSel=document.getElementById('wfPresetSel');
+    if(psSel){
+        psSel.innerHTML=presets.length?presets.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'（'+esc(p.group||'')+'）</option>').join(''):'<option value="">（无匹配预设）</option>';
+        if(_wfPresetId&&presets.some(p=>p.id===_wfPresetId))psSel.value=_wfPresetId;
+        else{_wfPresetId=presets.length?presets[0].id:null;if(_wfPresetId)psSel.value=_wfPresetId;}
+    }
+    renderWfSteps();
+}
+function onWfGroupChange(v){_wfGroup=v||'__all__';_wfPresetId=null;renderWorkflow();}
+function onWfSearch(){renderWorkflow();}
+function onWfPresetChange(v){_wfPresetId=v||null;renderWfSteps();}
 
-    // 预设下拉（按分组+搜索）
-    const kw = (document.getElementById('wfSearch') ? document.getElementById('wfSearch').value : '') || '';
-    const presets = Workflow.getPresets(_wfGroup, kw);
-    const psSel = document.getElementById('wfPresetSel');
-    if (psSel) {
-        psSel.innerHTML = presets.length
-            ? presets.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + '（' + esc(p.group || '') + '）</option>').join('')
-            : '<option value="">（无匹配预设）</option>';
-        // 保持当前选择，否则选第一个
-        if (_wfPresetId && presets.some(p => p.id === _wfPresetId)) {
-            psSel.value = _wfPresetId;
-        } else {
-            _wfPresetId = presets.length ? presets[0].id : null;
-            if (_wfPresetId) psSel.value = _wfPresetId;
+/* 渲染步骤：每步 = 步骤名 + 若干输入框（对应 input 片段）+ 发送按钮 */
+function renderWfSteps(){
+    const box=document.getElementById('wfCmds');
+    if(!box)return;
+    if(!_wfPresetId){box.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">请选择一个预设</div>';return;}
+    const steps=Workflow.getSteps(_wfPresetId);
+    if(!steps.length){box.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">该预设暂无步骤</div>';return;}
+    box.innerHTML='';
+    steps.forEach((s,i)=>{
+        const inputs=Workflow.getInputs(_wfPresetId,s.id);
+        const wrap=document.createElement('div');
+        wrap.className='wf-cmd';
+        let html='<div class="wf-cmd-title">'+(i+1)+'. '+esc(s.name)+'</div>';
+        if(inputs.length){
+            inputs.forEach(inp=>{
+                html+='<textarea class="wf-cmd-input" data-seg="'+inp.segIndex+'" id="wfin_'+esc(s.id)+'_'+inp.segIndex+'" rows="2" placeholder="'+esc(inp.placeholder)+'"></textarea>';
+            });
+        }else{
+            html+='<div style="font-size:12px;color:var(--text2);margin-bottom:6px">（此步骤无需输入，直接发送）</div>';
         }
-    }
-
-    renderWfCommands();
-}
-
-function onWfGroupChange(v) {
-    _wfGroup = v || '__all__';
-    _wfPresetId = null;
-    renderWorkflow();
-}
-function onWfSearch() { renderWorkflow(); }
-function onWfPresetChange(v) {
-    _wfPresetId = v || null;
-    renderWfCommands();
-}
-
-/* 渲染选中预设的指令列表（每条：名称 + 输入框 + 发送按钮） */
-function renderWfCommands() {
-    const box = document.getElementById('wfCmds');
-    if (!box) return;
-    if (!_wfPresetId) { box.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px">请选择一个预设</div>'; return; }
-
-    const cmds = Workflow.getCommands(_wfPresetId);
-    if (!cmds.length) { box.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px">该预设暂无指令</div>'; return; }
-
-    box.innerHTML = '';
-    cmds.forEach((cmd, i) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'wf-cmd';
-        wrap.innerHTML =
-            '<div class="wf-cmd-title">' + (i + 1) + '. ' + esc(cmd.name) + '</div>' +
-            '<textarea class="wf-cmd-input" id="wfin_' + esc(cmd.id) + '" rows="2" placeholder="' + esc(cmd.placeholder || '输入内容...') + '"></textarea>' +
-            '<button class="btn btn-p btn-s wf-cmd-send" onclick="wfSend(\'' + esc(cmd.id) + '\')">▶ 用此指令发送</button>';
+        html+='<button class="btn btn-p btn-s wf-cmd-send" onclick="wfSend(\''+esc(s.id)+'\')">▶ 用此步骤发送</button>';
+        wrap.innerHTML=html;
         box.appendChild(wrap);
     });
 }
 
-/* 工作流发送：拼接隐藏提示词，走核心发送 */
-async function wfSend(cmdId) {
-    if (!_wfPresetId) { toast('请先选择预设', 'er'); return; }
-    if (_streamCtrl) { toast('请等待当前回复完成', 'er'); return; }
-
-    const ta = document.getElementById('wfin_' + cmdId);
-    const userInput = ta ? ta.value : '';
-
+async function wfSend(stepId){
+    if(!_wfPresetId){toast('请先选择预设','er');return;}
+    if(_streamCtrl){toast('请等待当前回复完成','er');return;}
+    // 收集该步骤所有输入框的值
+    const inputsMap={};
+    const els=document.querySelectorAll('[id^="wfin_'+stepId+'_"]');
+    els.forEach(el=>{ const seg=parseInt(el.getAttribute('data-seg'),10); inputsMap[seg]=el.value; });
     let built;
-    try {
-        built = await Workflow.buildSend(_wfPresetId, cmdId, userInput);
-    } catch (e) {
-        toast('指令解密失败：' + e.message, 'er');
-        return;
-    }
+    try{ built=await Workflow.buildSend(_wfPresetId,stepId,inputsMap); }
+    catch(e){ toast('指令解密失败：'+e.message,'er'); return; }
+    await coreSend({ visibleText:built.displayText, actualText:built.sendText, titleHint:built.stepName });
+    els.forEach(el=>el.value='');
+}
 
-    // 走核心发送：displayText 存入可见消息，sendText 实际发AI
-    await coreSend({
-        visibleText: built.displayText,
-        actualText: built.sendText,
-        titleHint: built.cmdName,
+/* ===== 侧边栏 ===== */
+function renderSB(){
+    const search=(document.getElementById('schIn').value||'').toLowerCase();
+    const pinList=document.getElementById('pinList'),chatList=document.getElementById('chatList'),arcList=document.getElementById('arcList');
+    pinList.innerHTML='';chatList.innerHTML='';arcList.innerHTML='';
+    const order=S.chatOrder.filter(id=>S.chats[id]);let pinCount=0,arcCount=0;
+    order.forEach(id=>{
+        const c=S.chats[id];
+        if(search){const hay=(c.title+' '+(c.messages||[]).map(m=>typeof m.content==='string'?m.content:'').join(' ')).toLowerCase();if(!hay.includes(search))return;}
+        const li=document.createElement('li');li.className='ci'+(id===S.currentChatId?' act':'');li.onclick=()=>switchChat(id);
+        const span=document.createElement('span');span.className='ct';span.textContent=c.title||'新对话';li.appendChild(span);
+        const acts=document.createElement('div');acts.className='ia';
+        const rb=document.createElement('button');rb.textContent='✏️';rb.title='重命名';rb.onclick=(e)=>{e.stopPropagation();renameChat(id);};
+        const db=document.createElement('button');db.textContent='🗑️';db.title='删除';db.onclick=(e)=>{e.stopPropagation();delChat(id);};
+        acts.appendChild(rb);acts.appendChild(db);li.appendChild(acts);
+        if(c.isArchived){arcList.appendChild(li);arcCount++;}else if(c.isPinned){pinList.appendChild(li);pinCount++;}else chatList.appendChild(li);
     });
-
-    if (ta) ta.value = '';
+    document.getElementById('pinLbl').style.display=pinCount?'block':'none';
+    document.getElementById('arcLbl').style.display=arcCount?'block':'none';
+    const p=curProfile();
+    document.getElementById('badge').innerHTML=p?'当前引擎: <strong>'+esc(p.name)+'</strong><br>模型: '+esc(p.model||'-'):'请先在 ⚙️ 中配置引擎';
 }
 
-/* ============================================================
-   ===== 渲染：侧边栏 ==========================================
-   ============================================================ */
-function renderSB() {
-    const search = (document.getElementById('schIn').value || '').toLowerCase();
-    const pinList = document.getElementById('pinList');
-    const chatList = document.getElementById('chatList');
-    const arcList = document.getElementById('arcList');
-    pinList.innerHTML = ''; chatList.innerHTML = ''; arcList.innerHTML = '';
-
-    const order = S.chatOrder.filter(id => S.chats[id]);
-    let pinCount = 0, arcCount = 0;
-
-    order.forEach(id => {
-        const c = S.chats[id];
-        if (search) {
-            const hay = (c.title + ' ' + (c.messages || []).map(m =>
-                typeof m.content === 'string' ? m.content : '').join(' ')).toLowerCase();
-            if (!hay.includes(search)) return;
-        }
-
-        const li = document.createElement('li');
-        li.className = 'ci' + (id === S.currentChatId ? ' act' : '');
-        li.onclick = () => switchChat(id);
-
-        const span = document.createElement('span');
-        span.className = 'ct';
-        span.textContent = c.title || '新对话';
-        li.appendChild(span);
-
-        const acts = document.createElement('div');
-        acts.className = 'ia';
-        const renBtn = document.createElement('button');
-        renBtn.textContent = '✏️'; renBtn.title = '重命名';
-        renBtn.onclick = (e) => { e.stopPropagation(); renameChat(id); };
-        const delBtn = document.createElement('button');
-        delBtn.textContent = '🗑️'; delBtn.title = '删除';
-        delBtn.onclick = (e) => { e.stopPropagation(); delChat(id); };
-        acts.appendChild(renBtn);
-        acts.appendChild(delBtn);
-        li.appendChild(acts);
-
-        if (c.isArchived) { arcList.appendChild(li); arcCount++; }
-        else if (c.isPinned) { pinList.appendChild(li); pinCount++; }
-        else chatList.appendChild(li);
+function renderMs(){
+    const area=document.getElementById('msgsArea');const c=curChat();
+    if(!c){area.innerHTML='<div class="empty"><div class="ico">🚀</div><p>请先新建一个对话</p></div>';return;}
+    UI.renderMessages(area,c.messages,{
+        onDelete:(m)=>{c.messages=c.messages.filter(x=>x!==m);c.updatedAt=Date.now();scheduleSave();renderMs();},
+        onRegen:(m)=>regenerate(m),
     });
-
-    document.getElementById('pinLbl').style.display = pinCount ? 'block' : 'none';
-    document.getElementById('arcLbl').style.display = arcCount ? 'block' : 'none';
-
-    const p = curProfile();
-    document.getElementById('badge').innerHTML = p
-        ? '当前引擎: <strong>' + esc(p.name) + '</strong><br>模型: ' + esc(p.model || '-')
-        : '请先在 ⚙️ 中配置引擎';
+    document.getElementById('titleIn').value=c.title||'';
+    document.getElementById('pinBtn').textContent=c.isPinned?'📍':'📌';
 }
 
-/* ============================================================
-   ===== 渲染：消息区 ==========================================
-   ============================================================ */
-function renderMs() {
-    const area = document.getElementById('msgsArea');
-    const c = curChat();
-    if (!c) {
-        area.innerHTML = '<div class="empty"><div class="ico">🚀</div><p>请先新建一个对话</p></div>';
-        return;
-    }
-    UI.renderMessages(area, c.messages, {
-        onDelete: (m) => {
-            c.messages = c.messages.filter(x => x !== m);
-            c.updatedAt = Date.now();
-            scheduleSave();
-            renderMs();
-        },
-        onRegen: (m) => regenerate(m),
-    });
-    document.getElementById('titleIn').value = c.title || '';
-    document.getElementById('pinBtn').textContent = c.isPinned ? '📍' : '📌';
-}
+function renderAll(){renderSB();renderMs();renderEngTabs();renderEngForm();renderCSForm();renderStorageInfo();renderArchiveInfo();renderMode();}
 
-function renderAll() {
-    renderSB();
-    renderMs();
-    renderEngTabs();
-    renderEngForm();
-    renderCSForm();
-    renderStorageInfo();
-    renderArchiveInfo();
-    renderMode();
-}
-
-/* ============================================================
-   ===== ⚙️ 引擎配置 ===========================================
-   ============================================================ */
-function renderEngTabs() {
-    const tabs = document.getElementById('engTabs');
-    if (!tabs) return;
-    tabs.innerHTML = '';
-    Object.values(S.profiles).forEach(p => {
-        const b = document.createElement('button');
-        b.className = 'tab' + (p.id === S.currentEngId ? ' act' : '');
-        b.textContent = p.name;
-        b.onclick = () => {
-            S.currentEngId = p.id;
-            renderEngTabs();
-            renderEngForm();
-            renderSB();
-            renderMs();
-            scheduleSave();
-            toast('已切换到：' + p.name);
-        };
+/* ===== 引擎配置 ===== */
+function renderEngTabs(){
+    const tabs=document.getElementById('engTabs');if(!tabs)return;tabs.innerHTML='';
+    Object.values(S.profiles).forEach(p=>{
+        const b=document.createElement('button');b.className='tab'+(p.id===S.currentEngId?' act':'');b.textContent=p.name;
+        b.onclick=()=>{S.currentEngId=p.id;renderEngTabs();renderEngForm();renderSB();renderMs();scheduleSave();toast('已切换到：'+p.name);};
         tabs.appendChild(b);
     });
 }
-
-const MAX_TOKEN_PRESETS = [
-    { label: '4K', val: 4096 }, { label: '8K', val: 8192 },
-    { label: '16K', val: 16384 }, { label: '32K', val: 32768 },
-    { label: '64K', val: 65536 }, { label: '128K', val: 131072 },
-    { label: '256K', val: 262144 }, { label: '1M', val: 1048576 },
-];
-
-function renderEngForm() {
-    const form = document.getElementById('engForm');
-    if (!form) return;
-    const p = S.profiles[S.currentEngId];
-    if (!p) { form.innerHTML = '<p style="color:var(--text2)">请选择一个引擎</p>'; return; }
-
-    form.innerHTML = `
+const MAX_TOKEN_PRESETS=[{label:'4K',val:4096},{label:'8K',val:8192},{label:'16K',val:16384},{label:'32K',val:32768},{label:'64K',val:65536},{label:'128K',val:131072},{label:'256K',val:262144},{label:'1M',val:1048576}];
+function renderEngForm(){
+    const form=document.getElementById('engForm');if(!form)return;
+    const p=S.profiles[S.currentEngId];if(!p){form.innerHTML='<p style="color:var(--text2)">请选择一个引擎</p>';return;}
+    form.innerHTML=`
         <div class="fg"><label>引擎名称</label><input type="text" id="engName" value="${esc(p.name)}"></div>
         <div class="fg"><label>🌐 Base URL</label><input type="text" id="engBase" value="${esc(p.base)}" placeholder="https://api.openai.com/v1"></div>
-        <div class="fg"><label>🔑 API Key <span style="font-weight:normal;color:var(--text2);font-size:11px">（仅本地存储，不上传）</span></label>
-            <input type="password" id="engKey" value="${esc(p.key)}" autocomplete="off" placeholder="sk-..."></div>
-        <div class="fg"><label>🧠 模型 ID</label>
-            <div style="display:flex;gap:6px">
-                <input type="text" id="engModel" value="${esc(p.model)}" placeholder="gpt-4o-mini" style="flex:1">
-                <button class="btn btn-s" onclick="fMdls()" id="fMdlsBtn" style="white-space:nowrap">🔄 获取</button>
-            </div>
-            <div id="mdlSel" style="display:none;margin-top:6px"></div>
+        <div class="fg"><label>🔑 API Key <span style="font-weight:normal;color:var(--text2);font-size:11px">（仅本地存储）</span></label><input type="password" id="engKey" value="${esc(p.key)}" autocomplete="off" placeholder="sk-..."></div>
+        <div class="fg"><label>🧠 模型 ID</label><div style="display:flex;gap:6px"><input type="text" id="engModel" value="${esc(p.model)}" placeholder="gpt-4o-mini" style="flex:1"><button class="btn btn-s" onclick="fMdls()" id="fMdlsBtn" style="white-space:nowrap">🔄 获取</button></div><div id="mdlSel" style="display:none;margin-top:6px"></div></div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="font-size:13px;margin-bottom:10px">⚙️ 运行时参数</h4>
+            <div class="pt"><input type="checkbox" id="engUseTemp" ${p.useTemp?'checked':''}><label for="engUseTemp">🔥 Temperature</label></div>
+            <div class="ps" id="engTempBox" style="${p.useTemp?'':'display:none'}"><input type="range" id="engTemp" min="0" max="2" step="0.1" value="${p.temperature}"><div>当前值：<span class="pv" id="engTempV">${p.temperature}</span></div></div>
+            <div class="pt"><input type="checkbox" id="engUseMax" ${p.useMax?'checked':''}><label for="engUseMax">📏 Max Tokens</label></div>
+            <div class="ps" id="engMaxBox" style="${p.useMax?'':'display:none'}"><input type="number" id="engMax" value="${p.max_tokens}" min="1" max="2097152"><div class="presets">${MAX_TOKEN_PRESETS.map(x=>`<button onclick="setMax(${x.val})">${x.label}</button>`).join('')}</div></div>
+            <div class="pt"><input type="checkbox" id="engUseTopP" ${p.useTopP?'checked':''}><label for="engUseTopP">🎲 Top P</label></div>
+            <div class="ps" id="engTopPBox" style="${p.useTopP?'':'display:none'}"><input type="range" id="engTopP" min="0" max="1" step="0.05" value="${p.top_p}"><div>当前值：<span class="pv" id="engTopPV">${p.top_p}</span></div></div>
+            <div class="pt"><input type="checkbox" id="engUseFreq" ${p.useFreq?'checked':''}><label for="engUseFreq">🚫 Frequency Penalty</label></div>
+            <div class="ps" id="engFreqBox" style="${p.useFreq?'':'display:none'}"><input type="range" id="engFreq" min="-2" max="2" step="0.1" value="${p.frequency_penalty}"><div>当前值：<span class="pv" id="engFreqV">${p.frequency_penalty}</span></div></div>
         </div>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-            <h4 style="font-size:13px;margin-bottom:10px">⚙️ 运行时参数</h4>
-            <div class="pt"><input type="checkbox" id="engUseTemp" ${p.useTemp ? 'checked' : ''}><label for="engUseTemp">🔥 Temperature 温度</label></div>
-            <div class="ps" id="engTempBox" style="${p.useTemp ? '' : 'display:none'}">
-                <input type="range" id="engTemp" min="0" max="2" step="0.1" value="${p.temperature}">
-                <div>当前值：<span class="pv" id="engTempV">${p.temperature}</span><span style="font-size:11px;color:var(--text2);margin-left:8px">0=精确, 2=发散</span></div>
-            </div>
-            <div class="pt"><input type="checkbox" id="engUseMax" ${p.useMax ? 'checked' : ''}><label for="engUseMax">📏 Max Tokens 最大输出长度</label></div>
-            <div class="ps" id="engMaxBox" style="${p.useMax ? '' : 'display:none'}">
-                <input type="number" id="engMax" value="${p.max_tokens}" min="1" max="2097152">
-                <div class="presets">${MAX_TOKEN_PRESETS.map(x => `<button onclick="setMax(${x.val})">${x.label}</button>`).join('')}</div>
-            </div>
-            <div class="pt"><input type="checkbox" id="engUseTopP" ${p.useTopP ? 'checked' : ''}><label for="engUseTopP">🎲 Top P 核采样</label></div>
-            <div class="ps" id="engTopPBox" style="${p.useTopP ? '' : 'display:none'}"><input type="range" id="engTopP" min="0" max="1" step="0.05" value="${p.top_p}"><div>当前值：<span class="pv" id="engTopPV">${p.top_p}</span></div></div>
-            <div class="pt"><input type="checkbox" id="engUseFreq" ${p.useFreq ? 'checked' : ''}><label for="engUseFreq">🚫 Frequency Penalty 重复惩罚</label></div>
-            <div class="ps" id="engFreqBox" style="${p.useFreq ? '' : 'display:none'}"><input type="range" id="engFreq" min="-2" max="2" step="0.1" value="${p.frequency_penalty}"><div>当前值：<span class="pv" id="engFreqV">${p.frequency_penalty}</span></div></div>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
-            <button class="btn btn-p" onclick="saveEng()">💾 保存配置</button>
-            <button class="btn" onclick="tConn()" id="tConnBtn">🔑 测试连通</button>
-            ${API.DEFAULT_PROFILES[p.id] ? '' : '<button class="btn btn-d" onclick="delEng()">🗑️ 删除</button>'}
-        </div>`;
+        <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap"><button class="btn btn-p" onclick="saveEng()">💾 保存配置</button><button class="btn" onclick="tConn()" id="tConnBtn">🔑 测试连通</button>${API.DEFAULT_PROFILES[p.id]?'':'<button class="btn btn-d" onclick="delEng()">🗑️ 删除</button>'}</div>`;
     bindEngEvents(p);
 }
-
-function bindEngEvents(p) {
-    document.getElementById('engUseTemp').onchange = (e) => { document.getElementById('engTempBox').style.display = e.target.checked ? '' : 'none'; };
-    document.getElementById('engUseMax').onchange = (e) => { document.getElementById('engMaxBox').style.display = e.target.checked ? '' : 'none'; };
-    document.getElementById('engUseTopP').onchange = (e) => { document.getElementById('engTopPBox').style.display = e.target.checked ? '' : 'none'; };
-    document.getElementById('engUseFreq').onchange = (e) => { document.getElementById('engFreqBox').style.display = e.target.checked ? '' : 'none'; };
-    document.getElementById('engTemp').oninput = (e) => { document.getElementById('engTempV').textContent = e.target.value; };
-    document.getElementById('engTopP').oninput = (e) => { document.getElementById('engTopPV').textContent = e.target.value; };
-    document.getElementById('engFreq').oninput = (e) => { document.getElementById('engFreqV').textContent = e.target.value; };
+function bindEngEvents(p){
+    document.getElementById('engUseTemp').onchange=(e)=>{document.getElementById('engTempBox').style.display=e.target.checked?'':'none';};
+    document.getElementById('engUseMax').onchange=(e)=>{document.getElementById('engMaxBox').style.display=e.target.checked?'':'none';};
+    document.getElementById('engUseTopP').onchange=(e)=>{document.getElementById('engTopPBox').style.display=e.target.checked?'':'none';};
+    document.getElementById('engUseFreq').onchange=(e)=>{document.getElementById('engFreqBox').style.display=e.target.checked?'':'none';};
+    document.getElementById('engTemp').oninput=(e)=>{document.getElementById('engTempV').textContent=e.target.value;};
+    document.getElementById('engTopP').oninput=(e)=>{document.getElementById('engTopPV').textContent=e.target.value;};
+    document.getElementById('engFreq').oninput=(e)=>{document.getElementById('engFreqV').textContent=e.target.value;};
+}
+function setMax(val){document.getElementById('engMax').value=val;}
+function saveEng(){
+    const p=S.profiles[S.currentEngId];if(!p)return;
+    p.name=document.getElementById('engName').value.trim()||p.name;p.base=document.getElementById('engBase').value.trim();p.key=document.getElementById('engKey').value.trim();p.model=document.getElementById('engModel').value.trim();
+    p.useTemp=document.getElementById('engUseTemp').checked;p.temperature=parseFloat(document.getElementById('engTemp').value);
+    p.useMax=document.getElementById('engUseMax').checked;p.max_tokens=parseInt(document.getElementById('engMax').value,10);
+    p.useTopP=document.getElementById('engUseTopP').checked;p.top_p=parseFloat(document.getElementById('engTopP').value);
+    p.useFreq=document.getElementById('engUseFreq').checked;p.frequency_penalty=parseFloat(document.getElementById('engFreq').value);
+    scheduleSave();renderEngTabs();renderSB();renderMs();toast('✅ 配置已保存');
+}
+async function fMdls(){
+    const p=S.profiles[S.currentEngId];if(!p)return;
+    p.base=document.getElementById('engBase').value.trim();p.key=document.getElementById('engKey').value.trim();
+    if(!p.base||!p.key){toast('请先填写 Base URL 和 API Key','er');return;}
+    const btn=document.getElementById('fMdlsBtn');btn.disabled=true;btn.textContent='⏳ 获取中...';
+    try{
+        const list=await API.fetchModels(p);if(!list.length){toast('未返回任何模型','er');return;}
+        const sel=document.getElementById('mdlSel');sel.style.display='';
+        sel.innerHTML='<select id="mdlPick" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)">'+list.map(m=>'<option value="'+esc(m)+'"'+(m===p.model?' selected':'')+'>'+esc(m)+'</option>').join('')+'</select>';
+        document.getElementById('mdlPick').onchange=(e)=>{document.getElementById('engModel').value=e.target.value;};
+        toast('✅ 已获取 '+list.length+' 个模型');
+    }catch(e){toast('获取失败：'+e.message,'er');}finally{btn.disabled=false;btn.textContent='🔄 获取';}
+}
+async function tConn(){
+    const p=S.profiles[S.currentEngId];if(!p)return;
+    p.base=document.getElementById('engBase').value.trim();p.key=document.getElementById('engKey').value.trim();
+    if(!p.base||!p.key){toast('请先填写 Base URL 和 API Key','er');return;}
+    const btn=document.getElementById('tConnBtn');btn.disabled=true;btn.textContent='⏳ 测试中...';
+    const r=await API.testConnection(p);btn.disabled=false;btn.textContent='🔑 测试连通';toast(r.msg,r.ok?'ok':'er');
+}
+function addEng(){
+    const name=prompt('新引擎名称：','我的引擎');if(!name||!name.trim())return;
+    const id='custom_'+gId().slice(0,8);
+    S.profiles[id]={id:id,name:name.trim(),base:'https://api.openai.com/v1',key:'',model:'gpt-4o-mini',useTemp:true,temperature:0.7,useMax:true,max_tokens:4096,useTopP:false,top_p:1,useFreq:false,frequency_penalty:0};
+    S.currentEngId=id;scheduleSave();renderEngTabs();renderEngForm();renderSB();renderMs();
+}
+function delEng(){
+    const p=S.profiles[S.currentEngId];if(!p)return;
+    if(API.DEFAULT_PROFILES[p.id]){toast('内置引擎不可删除','er');return;}
+    if(!confirm('删除引擎 '+p.name+'？'))return;
+    delete S.profiles[p.id];S.currentEngId=Object.keys(S.profiles)[0]||'zenmux';scheduleSave();renderEngTabs();renderEngForm();renderSB();renderMs();toast('已删除');
 }
 
-function setMax(val) { document.getElementById('engMax').value = val; }
-
-function saveEng() {
-    const p = S.profiles[S.currentEngId];
-    if (!p) return;
-    p.name = document.getElementById('engName').value.trim() || p.name;
-    p.base = document.getElementById('engBase').value.trim();
-    p.key = document.getElementById('engKey').value.trim();
-    p.model = document.getElementById('engModel').value.trim();
-    p.useTemp = document.getElementById('engUseTemp').checked;
-    p.temperature = parseFloat(document.getElementById('engTemp').value);
-    p.useMax = document.getElementById('engUseMax').checked;
-    p.max_tokens = parseInt(document.getElementById('engMax').value, 10);
-    p.useTopP = document.getElementById('engUseTopP').checked;
-    p.top_p = parseFloat(document.getElementById('engTopP').value);
-    p.useFreq = document.getElementById('engUseFreq').checked;
-    p.frequency_penalty = parseFloat(document.getElementById('engFreq').value);
-    scheduleSave();
-    renderEngTabs();
-    renderSB();
-    renderMs();
-    toast('✅ 配置已保存');
-}
-
-async function fMdls() {
-    const p = S.profiles[S.currentEngId];
-    if (!p) return;
-    p.base = document.getElementById('engBase').value.trim();
-    p.key = document.getElementById('engKey').value.trim();
-    if (!p.base || !p.key) { toast('请先填写 Base URL 和 API Key', 'er'); return; }
-    const btn = document.getElementById('fMdlsBtn');
-    btn.disabled = true; btn.textContent = '⏳ 获取中...';
-    try {
-        const list = await API.fetchModels(p);
-        if (!list.length) { toast('未返回任何模型', 'er'); return; }
-        const sel = document.getElementById('mdlSel');
-        sel.style.display = '';
-        sel.innerHTML = '<select id="mdlPick" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)">'
-            + list.map(m => '<option value="' + esc(m) + '"' + (m === p.model ? ' selected' : '') + '>' + esc(m) + '</option>').join('') + '</select>';
-        document.getElementById('mdlPick').onchange = (e) => { document.getElementById('engModel').value = e.target.value; };
-        toast('✅ 已获取 ' + list.length + ' 个模型');
-    } catch (e) { toast('获取失败：' + e.message, 'er'); }
-    finally { btn.disabled = false; btn.textContent = '🔄 获取'; }
-}
-
-async function tConn() {
-    const p = S.profiles[S.currentEngId];
-    if (!p) return;
-    p.base = document.getElementById('engBase').value.trim();
-    p.key = document.getElementById('engKey').value.trim();
-    if (!p.base || !p.key) { toast('请先填写 Base URL 和 API Key', 'er'); return; }
-    const btn = document.getElementById('tConnBtn');
-    btn.disabled = true; btn.textContent = '⏳ 测试中...';
-    const result = await API.testConnection(p);
-    btn.disabled = false; btn.textContent = '🔑 测试连通';
-    toast(result.msg, result.ok ? 'ok' : 'er');
-}
-
-function addEng() {
-    const name = prompt('新引擎名称：', '我的引擎');
-    if (!name || !name.trim()) return;
-    const id = 'custom_' + gId().slice(0, 8);
-    S.profiles[id] = {
-        id: id, name: name.trim(), base: 'https://api.openai.com/v1', key: '', model: 'gpt-4o-mini',
-        useTemp: true, temperature: 0.7, useMax: true, max_tokens: 4096,
-        useTopP: false, top_p: 1, useFreq: false, frequency_penalty: 0,
-    };
-    S.currentEngId = id;
-    scheduleSave();
-    renderEngTabs(); renderEngForm(); renderSB(); renderMs();
-}
-
-function delEng() {
-    const p = S.profiles[S.currentEngId];
-    if (!p) return;
-    if (API.DEFAULT_PROFILES[p.id]) { toast('内置引擎不可删除', 'er'); return; }
-    if (!confirm('删除引擎 ' + p.name + '？')) return;
-    delete S.profiles[p.id];
-    S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
-    scheduleSave();
-    renderEngTabs(); renderEngForm(); renderSB(); renderMs();
-    toast('已删除');
-}
-
-/* ============================================================
-   ===== 全局设置：用户名 + 存档目录 + 存档间隔 ===============
-   ============================================================ */
-function renderGlobalSettings() {
-    const uIn = document.getElementById('userNameIn');
-    if (uIn) uIn.value = S.userName || '';
-    const ai = document.getElementById('archiveIntervalSel');
-    if (ai) ai.value = String(S.archiveInterval !== undefined ? S.archiveInterval : 10);
+/* ===== 全局设置 ===== */
+function renderGlobalSettings(){
+    const uIn=document.getElementById('userNameIn');if(uIn)uIn.value=S.userName||'';
+    const ai=document.getElementById('archiveIntervalSel');if(ai)ai.value=String(S.archiveInterval!==undefined?S.archiveInterval:10);
     renderArchiveInfo();
 }
+function renderArchiveInfo(){
+    const el=document.getElementById('archiveInfo');if(!el||typeof Archive==='undefined')return;
+    if(!Archive.isSupported()){el.innerHTML='<span style="color:var(--text2)">⚠️ 当前浏览器不支持自动存档（需 Chrome / Edge）</span>';return;}
+    if(Archive.isEnabled()){
+        const authTxt=Archive.isAuthorized()?'🟢 已授权':'🔴 待授权（刷新后点授权弹窗）';
+        el.innerHTML='✅ 已开启自动存档（'+authTxt+'）<br>目录：<strong>'+esc(Archive.getDirName())+'</strong><br><span style="font-size:11px;color:var(--text2)">每 '+(S.archiveInterval||10)+' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话</span>';
+    }else el.innerHTML='<span style="color:var(--text2)">未设置存档目录</span>';
+}
+function updArchiveInterval(v){S.archiveInterval=parseInt(v,10)||0;scheduleSave();if(typeof Archive!=='undefined')Archive.setInterval(S.archiveInterval);renderArchiveInfo();toast('存档间隔：'+(S.archiveInterval?S.archiveInterval+' 分钟':'关闭定时'));}
+async function chooseArchiveDir(){if(typeof Archive==='undefined')return;const ok=await Archive.chooseDir();if(ok){Archive.setInterval(S.archiveInterval||10);renderArchiveInfo();await Archive.archiveAll({silent:false});}}
+async function clearArchiveDir(){if(typeof Archive==='undefined')return;if(!confirm('确认关闭自动存档？（已存档文件不删）'))return;await Archive.clearDir();renderArchiveInfo();}
+async function archiveNowBtn(){if(typeof Archive==='undefined')return;await Archive.archiveNow();}
 
-function renderArchiveInfo() {
-    const el = document.getElementById('archiveInfo');
-    if (!el || typeof Archive === 'undefined') return;
-    if (!Archive.isSupported()) {
-        el.innerHTML = '<span style="color:var(--text2)">⚠️ 当前浏览器不支持自动存档（需 Chrome / Edge）</span>';
-        return;
-    }
-    if (Archive.isEnabled()) {
-        const authTxt = Archive.isAuthorized() ? '🟢 已授权' : '🔴 待授权（请刷新后点授权弹窗）';
-        el.innerHTML = '✅ 已开启自动存档（' + authTxt + '）<br>目录：<strong>' + esc(Archive.getDirName()) + '</strong>'
-            + '<br><span style="font-size:11px;color:var(--text2)">每 ' + (S.archiveInterval || 10)
-            + ' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话（HTML + JSON）</span>';
-    } else {
-        el.innerHTML = '<span style="color:var(--text2)">未设置存档目录（设置后将自动备份对话到局域网共享目录）</span>';
-    }
+/* ===== 会话设置 ===== */
+function renderCSForm(){const c=curChat();if(!c)return;const sp=document.getElementById('spIn');if(sp)sp.value=c.systemPrompt||'';const si=document.getElementById('snapInterval');if(si)si.value=String(S.snapInterval||5);}
+function updSP(v){const c=curChat();if(!c)return;c.systemPrompt=v||'';c.updatedAt=Date.now();scheduleSave();}
+function updSnapInterval(v){S.snapInterval=parseInt(v,10)||0;scheduleSave();if(typeof Snapshot!=='undefined')Snapshot.startAuto(S.snapInterval,()=>S);toast('快照间隔：'+(S.snapInterval?S.snapInterval+' 分钟':'关闭'));}
+
+async function renderStorageInfo(){
+    const el=document.getElementById('storageInfo');if(!el)return;
+    try{const info=await DB.getStorageInfo();el.innerHTML='已用：<strong>'+info.usedText+'</strong><br>配额：'+info.quotaText+'（'+info.percent+'%）<br>持久化：'+(info.persisted?'✅ 已启用':'⚠️ 未启用')+'<br>版本：'+APP_VERSION;}
+    catch(e){el.textContent='存储信息获取失败';}
 }
 
-function updArchiveInterval(v) {
-    S.archiveInterval = parseInt(v, 10) || 0;
-    scheduleSave();
-    if (typeof Archive !== 'undefined') Archive.setInterval(S.archiveInterval);
-    renderArchiveInfo();
-    toast('存档间隔：' + (S.archiveInterval ? S.archiveInterval + ' 分钟' : '关闭定时（仅回复后存）'));
-}
-
-async function chooseArchiveDir() {
-    if (typeof Archive === 'undefined') return;
-    const ok = await Archive.chooseDir();
-    if (ok) {
-        Archive.setInterval(S.archiveInterval || 10);
-        renderArchiveInfo();
-        await Archive.archiveAll({ silent: false });
-    }
-}
-async function clearArchiveDir() {
-    if (typeof Archive === 'undefined') return;
-    if (!confirm('确认关闭自动存档？（已存档的文件不会被删除）')) return;
-    await Archive.clearDir();
-    renderArchiveInfo();
-}
-async function archiveNowBtn() {
-    if (typeof Archive === 'undefined') return;
-    await Archive.archiveNow();
-}
-
-/* ============================================================
-   ===== 会话设置 ==============================================
-   ============================================================ */
-function renderCSForm() {
-    const c = curChat();
-    if (!c) return;
-    const sp = document.getElementById('spIn');
-    if (sp) sp.value = c.systemPrompt || '';
-    const si = document.getElementById('snapInterval');
-    if (si) si.value = String(S.snapInterval || 5);
-}
-function updSP(v) {
-    const c = curChat();
-    if (!c) return;
-    c.systemPrompt = v || '';
-    c.updatedAt = Date.now();
-    scheduleSave();
-}
-function updSnapInterval(v) {
-    S.snapInterval = parseInt(v, 10) || 0;
-    scheduleSave();
-    if (typeof Snapshot !== 'undefined') Snapshot.startAuto(S.snapInterval, () => S);
-    toast('快照间隔：' + (S.snapInterval ? S.snapInterval + ' 分钟' : '关闭'));
-}
-
-/* ============================================================
-   ===== 存储信息 ==============================================
-   ============================================================ */
-async function renderStorageInfo() {
-    const el = document.getElementById('storageInfo');
-    if (!el) return;
-    try {
-        const info = await DB.getStorageInfo();
-        el.innerHTML = '已用：<strong>' + info.usedText + '</strong><br>配额：' + info.quotaText + '（' + info.percent + '%）<br>'
-            + '持久化：' + (info.persisted ? '✅ 已启用' : '⚠️ 未启用（可能被清理）') + '<br>版本：' + APP_VERSION;
-    } catch (e) { el.textContent = '存储信息获取失败'; }
-}
-
-/* ============================================================
-   ===== 核心发送（自由对话 & 工作流 共用） ===================
-   ============================================================ */
-/* opts: { visibleText 可见消息文字, actualText 实际发AI文字, titleHint 标题提示 } */
-async function coreSend(opts) {
-    opts = opts || {};
-    let c = curChat();
-    if (!c) { newChat(); c = curChat(); }
-
-    const profile = curProfile();
-    if (!profile || !profile.key) {
-        toast('请先在 ⚙️ 中配置引擎 API Key', 'er');
-        openM('set');
-        return;
-    }
-
-    const visibleText = opts.visibleText;
-    const actualText = opts.actualText;
-
-    // 附件（仅自由对话用；工作流默认不带附件）
-    const attsForUser = opts.atts || [];
-    let attachedText = '';
-    const imageAtts = [];
-    attsForUser.forEach(a => {
-        if (a.type === 'image') imageAtts.push(a);
-        else if (a.text) attachedText += '\n\n=== 📎 附件：' + a.fileName + ' ===\n' + a.text + '\n=== 附件结束 ===\n';
-    });
-
-    let kbText = '';
-    if (c.knowledgeBase && c.knowledgeBase.length) {
-        c.knowledgeBase.forEach(k => {
-            if (k.type === 'image') imageAtts.push({ fileName: k.name, dataUrl: k.dataUrl, type: 'image' });
-            else if (k.text) kbText += '\n\n=== 📚 知识库：' + k.name + ' ===\n' + k.text + '\n=== 知识库结束 ===\n';
-        });
-    }
-
-    const composedText = (kbText ? kbText + '\n' : '') + (attachedText ? attachedText + '\n' : '') + actualText;
-
-    const userMsg = {
-        id: gId(), role: 'user',
-        content: visibleText,                    // ★ 界面只存可见文字（工作流隐藏提示词）
-        _actual: actualText,                     // 仅本次发送用，不进可见渲染
-        attachments: attsForUser.map(a => ({ name: a.fileName, type: a.type, ext: a.meta && a.meta.ext })),
-        _time: nowTime(),
-    };
+/* ===== 核心发送 ===== */
+async function coreSend(opts){
+    opts=opts||{};
+    let c=curChat();if(!c){newChat();c=curChat();}
+    const profile=curProfile();
+    if(!profile||!profile.key){toast('请先在 ⚙️ 中配置引擎 API Key','er');openM('set');return;}
+    const visibleText=opts.visibleText,actualText=opts.actualText;
+    const attsForUser=opts.atts||[];
+    let attachedText='';const imageAtts=[];
+    attsForUser.forEach(a=>{if(a.type==='image')imageAtts.push(a);else if(a.text)attachedText+='\n\n=== 📎 附件：'+a.fileName+' ===\n'+a.text+'\n=== 附件结束 ===\n';});
+    let kbText='';
+    if(c.knowledgeBase&&c.knowledgeBase.length){c.knowledgeBase.forEach(k=>{if(k.type==='image')imageAtts.push({fileName:k.name,dataUrl:k.dataUrl,type:'image'});else if(k.text)kbText+='\n\n=== 📚 知识库：'+k.name+' ===\n'+k.text+'\n=== 知识库结束 ===\n';});}
+    const composedText=(kbText?kbText+'\n':'')+(attachedText?attachedText+'\n':'')+actualText;
+    const userMsg={id:gId(),role:'user',content:visibleText,_actual:actualText,attachments:attsForUser.map(a=>({name:a.fileName,type:a.type,ext:a.meta&&a.meta.ext})),_time:nowTime()};
     c.messages.push(userMsg);
-
-    const aiMsg = { id: gId(), role: 'assistant', content: '', _streaming: true, _time: nowTime() };
+    const aiMsg={id:gId(),role:'assistant',content:'',_streaming:true,_time:nowTime()};
     c.messages.push(aiMsg);
-
-    if (c.title === '新对话' && c.messages.length <= 2) {
-        c.title = (opts.titleHint || visibleText || '新对话').slice(0, 24);
-    }
-    c.updatedAt = Date.now();
-
-    renderMs();
-    renderSB();
-
-    // 构建发给AI的消息序列
-    const sendMsgs = [];
-    if (c.systemPrompt && c.systemPrompt.trim()) sendMsgs.push({ role: 'system', content: c.systemPrompt });
-    const lastUserIdx = c.messages.length - 2;
-    c.messages.forEach((m, idx) => {
-        if (m === aiMsg) return;
-        if (m._interrupted && !m.content) return;
-        if (idx === lastUserIdx && m.role === 'user') {
-            // 最后一条用户消息：用实际文字（含隐藏提示词），带图片
-            if (imageAtts.length) {
-                const parts = [];
-                if (composedText) parts.push({ type: 'text', text: composedText });
-                imageAtts.forEach(im => parts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
-                sendMsgs.push({ role: 'user', content: parts });
-            } else {
-                sendMsgs.push({ role: 'user', content: composedText });
-            }
-        } else {
-            // 历史消息：优先用 _actual（若有），否则用 content
-            sendMsgs.push({ role: m.role, content: m._actual || m.content });
-        }
+    if(c.title==='新对话'&&c.messages.length<=2)c.title=(opts.titleHint||visibleText||'新对话').slice(0,24);
+    c.updatedAt=Date.now();
+    renderMs();renderSB();
+    const sendMsgs=[];
+    if(c.systemPrompt&&c.systemPrompt.trim())sendMsgs.push({role:'system',content:c.systemPrompt});
+    const lastUserIdx=c.messages.length-2;
+    c.messages.forEach((m,idx)=>{
+        if(m===aiMsg)return;if(m._interrupted&&!m.content)return;
+        if(idx===lastUserIdx&&m.role==='user'){
+            if(imageAtts.length){const parts=[];if(composedText)parts.push({type:'text',text:composedText});imageAtts.forEach(im=>parts.push({type:'image_url',image_url:{url:im.dataUrl}}));sendMsgs.push({role:'user',content:parts});}
+            else sendMsgs.push({role:'user',content:composedText});
+        }else sendMsgs.push({role:m.role,content:m._actual||m.content});
     });
-
     await saveNow();
-
-    const sendBtn = document.getElementById('sendBtn');
-    sendBtn.classList.add('stop');
-    sendBtn.textContent = '■';
-
-    const area = document.getElementById('msgsArea');
-    const lastMsgEl = area.querySelector('.msg:last-child .bub');
-    if (!lastMsgEl) { console.error('bub not found'); return; }
-
-    const updater = UI.makeStreamUpdater(lastMsgEl, area);
-    let lastSaveTime = Date.now();
-    const SAVE_INTERVAL = 3000;
-
-    _streamCtrl = API.streamChat(profile, sendMsgs, {
-        onStart: () => {},
-        onDelta: (delta, full) => {
-            aiMsg.content = full;
-            updater(full);
-            if (Date.now() - lastSaveTime > SAVE_INTERVAL) { lastSaveTime = Date.now(); scheduleSave(); }
-        },
-        onDone: async (full) => {
-            aiMsg.content = full;
-            aiMsg._streaming = false;
-            c.updatedAt = Date.now();
-            _streamCtrl = null;
-            sendBtn.classList.remove('stop'); sendBtn.textContent = '➤';
-            UI.fullRender(lastMsgEl, full);
-            await saveNow();
-            renderMs(); renderSB();
-            if (typeof Archive !== 'undefined') Archive.notifyActivity();
-        },
-        onAbort: async (full) => {
-            aiMsg.content = full; aiMsg._streaming = false; aiMsg._interrupted = true;
-            _streamCtrl = null;
-            sendBtn.classList.remove('stop'); sendBtn.textContent = '➤';
-            UI.fullRender(lastMsgEl, full || '_（已中断）_');
-            await saveNow(); renderMs();
-            toast('已停止');
-            if (typeof Archive !== 'undefined') Archive.notifyActivity();
-        },
-        onError: async (err) => {
-            console.error('[Send] 错误', err);
-            aiMsg.content = (aiMsg.content || '') + '\n\n❌ **错误**：' + err.message;
-            aiMsg._streaming = false; aiMsg._interrupted = true;
-            _streamCtrl = null;
-            sendBtn.classList.remove('stop'); sendBtn.textContent = '➤';
-            UI.fullRender(lastMsgEl, aiMsg.content);
-            await saveNow();
-            toast('请求失败：' + err.message, 'er');
-        },
+    const sendBtn=document.getElementById('sendBtn');sendBtn.classList.add('stop');sendBtn.textContent='■';
+    const area=document.getElementById('msgsArea');const lastMsgEl=area.querySelector('.msg:last-child .bub');
+    if(!lastMsgEl){console.error('bub not found');return;}
+    const updater=UI.makeStreamUpdater(lastMsgEl,area);
+    let lastSaveTime=Date.now();const SAVE_INTERVAL=3000;
+    _streamCtrl=API.streamChat(profile,sendMsgs,{
+        onStart:()=>{},
+        onDelta:(d,full)=>{aiMsg.content=full;updater(full);if(Date.now()-lastSaveTime>SAVE_INTERVAL){lastSaveTime=Date.now();scheduleSave();}},
+        onDone:async(full)=>{aiMsg.content=full;aiMsg._streaming=false;c.updatedAt=Date.now();_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,full);await saveNow();renderMs();renderSB();if(typeof Archive!=='undefined')Archive.notifyActivity();},
+        onAbort:async(full)=>{aiMsg.content=full;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,full||'_（已中断）_');await saveNow();renderMs();toast('已停止');if(typeof Archive!=='undefined')Archive.notifyActivity();},
+        onError:async(err)=>{console.error('[Send]',err);aiMsg.content=(aiMsg.content||'')+'\n\n❌ **错误**：'+err.message;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,aiMsg.content);await saveNow();toast('请求失败：'+err.message,'er');},
     });
 }
 
-/* ============================================================
-   ===== 自由对话发送 ==========================================
-   ============================================================ */
-async function send() {
-    if (_streamCtrl) { _streamCtrl.abort(); return; }
-
-    const inp = document.getElementById('uIn');
-    const text = (inp.value || '').trim();
-    const hasText = !!text;
-    const hasAtts = _pendingAtts.length > 0;
-    if (!hasText && !hasAtts) { toast('请输入内容或上传附件', 'er'); return; }
-
-    const userVisibleText = text || '(已上传 ' + _pendingAtts.length + ' 个附件)';
-    const attsForUser = _pendingAtts.slice();
-
-    inp.value = ''; aRsz(inp);
-    _pendingAtts = [];
-    renderAttList();
-
-    await coreSend({
-        visibleText: userVisibleText,
-        actualText: text,
-        atts: attsForUser,
-        titleHint: text,
-    });
+async function send(){
+    if(_streamCtrl){_streamCtrl.abort();return;}
+    const inp=document.getElementById('uIn');const text=(inp.value||'').trim();
+    if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}
+    const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';
+    const attsForUser=_pendingAtts.slice();
+    inp.value='';aRsz(inp);_pendingAtts=[];renderAttList();
+    await coreSend({visibleText:userVisibleText,actualText:text,atts:attsForUser,titleHint:text});
 }
 
-async function regenerate(msg) {
-    const c = curChat();
-    if (!c) return;
-    const idx = c.messages.indexOf(msg);
-    if (idx < 1) return;
-    const prev = c.messages[idx - 1];
-    if (prev.role !== 'user') { toast('无法找到对应的提问', 'er'); return; }
-    // 重新发送：用 prev 的实际文字
-    const actual = prev._actual || (typeof prev.content === 'string' ? prev.content : '');
-    const visible = typeof prev.content === 'string' ? prev.content : '';
-    c.messages.splice(idx, 1);   // 删AI
-    c.messages.splice(idx - 1, 1); // 删旧user
-    await saveNow();
-    renderMs();
-    await coreSend({ visibleText: visible, actualText: actual, titleHint: visible });
+async function regenerate(msg){
+    const c=curChat();if(!c)return;
+    const idx=c.messages.indexOf(msg);if(idx<1)return;
+    const prev=c.messages[idx-1];if(prev.role!=='user'){toast('无法找到对应的提问','er');return;}
+    const actual=prev._actual||(typeof prev.content==='string'?prev.content:'');
+    const visible=typeof prev.content==='string'?prev.content:'';
+    c.messages.splice(idx,1);c.messages.splice(idx-1,1);
+    await saveNow();renderMs();
+    await coreSend({visibleText:visible,actualText:actual,titleHint:visible});
 }
 
-/* ============================================================
-   ===== 输入区 / 键盘 / 模态框 ===============================
-   ============================================================ */
-function aRsz(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 130) + 'px'; }
-function hKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
-}
-function openM(n) {
-    const m = document.getElementById('mo-' + n);
-    if (!m) return;
-    m.classList.add('show');
-    if (n === 'cs') { renderCSForm(); renderKBList(); }
-    if (n === 'set') { renderEngTabs(); renderEngForm(); renderStorageInfo(); renderGlobalSettings(); }
-    if (n === 'exp') updExpPreview();
-    if (n === 'snap' && IS_IOS) { const w = document.getElementById('iosW'); if (w) w.style.display = 'block'; }
-}
-function closeM(n) { const m = document.getElementById('mo-' + n); if (m) m.classList.remove('show'); }
-function togSB() {
-    document.getElementById('sb').classList.toggle('open');
-    document.getElementById('sbOv').classList.toggle('show');
-}
+function aRsz(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,130)+'px';}
+function hKey(e){if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}}
+function openM(n){const m=document.getElementById('mo-'+n);if(!m)return;m.classList.add('show');if(n==='cs'){renderCSForm();renderKBList();}if(n==='set'){renderEngTabs();renderEngForm();renderStorageInfo();renderGlobalSettings();}if(n==='exp')updExpPreview();if(n==='snap'&&IS_IOS){const w=document.getElementById('iosW');if(w)w.style.display='block';}}
+function closeM(n){const m=document.getElementById('mo-'+n);if(m)m.classList.remove('show');}
+function togSB(){document.getElementById('sb').classList.toggle('open');document.getElementById('sbOv').classList.toggle('show');}
 
-/* ============================================================
-   ===== 附件 / 知识库 / 上传 =================================
-   ============================================================ */
-function togAtt() { document.getElementById('attPan').classList.toggle('show'); }
-function updAttCont() { _attContinuous = document.getElementById('attCont').checked; }
-function onAtt(inputEl) { Upload.fromInput(inputEl); }
+function togAtt(){document.getElementById('attPan').classList.toggle('show');}
+function updAttCont(){_attContinuous=document.getElementById('attCont').checked;}
+function onAtt(inputEl){Upload.fromInput(inputEl);}
 
-async function _importShareFile(file) {
-    let password = '';
-    for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-            const result = await Snapshot.importSharedChat(file, password);
-            const chat = result.chat;
-            S.chats[chat.id] = chat;
-            S.chatOrder.unshift(chat.id);
-            S.currentChatId = chat.id;
-            await saveNow();
-            renderAll();
-            const byText = result.sharedBy ? '（来自: ' + result.sharedBy + '）' : '';
-            toast('✅ 已导入分享对话' + byText + '，可继续聊天！');
-            return;
-        } catch (e) {
-            if (e.code === 'NEED_PASSWORD' || /口令/.test(e.message)) {
-                const pwd = prompt(attempt === 0 ? '该分享文件已加密，请输入访问口令：'
-                    : '口令错误，请重新输入（剩余 ' + (3 - attempt) + ' 次）：', '');
-                if (pwd === null) { toast('已取消导入'); return; }
-                password = pwd.trim();
-                continue;
+async function _importShareFile(file){
+    let password='';
+    for(let attempt=0;attempt<3;attempt++){
+        try{
+            const result=await Snapshot.importSharedChat(file,password);
+            const chat=result.chat;S.chats[chat.id]=chat;S.chatOrder.unshift(chat.id);S.currentChatId=chat.id;
+            await saveNow();renderAll();
+            toast('✅ 已导入分享对话'+(result.sharedBy?'（来自: '+result.sharedBy+'）':'')+'，可继续聊天！');return;
+        }catch(e){
+            if(e.code==='NEED_PASSWORD'||/口令/.test(e.message)){
+                const pwd=prompt(attempt===0?'该分享文件已加密，请输入访问口令：':'口令错误，请重新输入（剩余 '+(3-attempt)+' 次）：','');
+                if(pwd===null){toast('已取消导入');return;}password=pwd.trim();continue;
             }
-            toast('❌ 导入分享失败：' + e.message, 'er');
-            return;
+            toast('❌ 导入分享失败：'+e.message,'er');return;
         }
     }
-    toast('❌ 口令错误次数过多，导入取消', 'er');
+    toast('❌ 口令错误次数过多','er');
 }
 
-async function handleUploadedFiles(files) {
-    if (!files || !files.length) return;
-    const fileArr = Array.from(files);
-    const jsonFiles = fileArr.filter(f => /\.json$/i.test(f.name));
-    const otherFiles = fileArr.filter(f => !/\.json$/i.test(f.name));
-
-    for (const jf of jsonFiles) {
-        try {
-            const fileType = await Snapshot.detectFileType(jf);
-            if (fileType === 'share' || fileType === 'enc' || fileType === 'enc-pwd') { await _importShareFile(jf); continue; }
-            if (fileType === 'snapshot') { toast('📦 检测到快照文件，请通过侧边栏 → 📦 快照迁移 导入', 'er'); continue; }
+async function handleUploadedFiles(files){
+    if(!files||!files.length)return;
+    const fileArr=Array.from(files);
+    const jsonFiles=fileArr.filter(f=>/\.json$/i.test(f.name));
+    const otherFiles=fileArr.filter(f=>!/\.json$/i.test(f.name));
+    for(const jf of jsonFiles){
+        try{
+            const ft=await Snapshot.detectFileType(jf);
+            if(ft==='share'||ft==='enc'||ft==='enc-pwd'){await _importShareFile(jf);continue;}
+            if(ft==='snapshot'){toast('📦 检测到快照文件，请通过 📦 快照迁移 导入','er');continue;}
             otherFiles.push(jf);
-        } catch (e) { otherFiles.push(jf); }
+        }catch(e){otherFiles.push(jf);}
     }
-
-    if (!otherFiles.length) return;
-
-    toast('开始解析 ' + otherFiles.length + ' 个文件...');
-    const results = await Parser.parseFiles(otherFiles);
-    let okCount = 0, failCount = 0;
-    results.forEach(r => {
-        if (r.ok) { _pendingAtts.push(r.result); okCount++; }
-        else { failCount++; toast('❌ ' + r.file.name + '：' + r.error, 'er'); }
-    });
-
-    if (_attContinuous && okCount > 0) {
-        const c = curChat();
-        if (c) {
-            if (!c.knowledgeBase) c.knowledgeBase = [];
-            results.forEach(r => {
-                if (r.ok) {
-                    c.knowledgeBase.push({
-                        id: gId(), name: r.result.fileName, type: r.result.type,
-                        text: r.result.text || '', dataUrl: r.result.dataUrl || null,
-                        meta: r.result.meta || {}, addedAt: Date.now(),
-                    });
-                }
-            });
-            c.updatedAt = Date.now();
-            await saveNow();
-            renderKBList();
-        }
+    if(!otherFiles.length)return;
+    toast('开始解析 '+otherFiles.length+' 个文件...');
+    const results=await Parser.parseFiles(otherFiles);
+    let okCount=0,failCount=0;
+    results.forEach(r=>{if(r.ok){_pendingAtts.push(r.result);okCount++;}else{failCount++;toast('❌ '+r.file.name+'：'+r.error,'er');}});
+    if(_attContinuous&&okCount>0){
+        const c=curChat();
+        if(c){if(!c.knowledgeBase)c.knowledgeBase=[];results.forEach(r=>{if(r.ok)c.knowledgeBase.push({id:gId(),name:r.result.fileName,type:r.result.type,text:r.result.text||'',dataUrl:r.result.dataUrl||null,meta:r.result.meta||{},addedAt:Date.now()});});c.updatedAt=Date.now();await saveNow();renderKBList();}
     }
-
-    if (okCount > 0) toast('✅ 已解析 ' + okCount + ' 个文件' + (failCount ? '（' + failCount + ' 失败）' : ''));
+    if(okCount>0)toast('✅ 已解析 '+okCount+' 个文件'+(failCount?'（'+failCount+' 失败）':''));
     renderAttList();
 }
 
-function renderAttList() {
-    const box = document.getElementById('attListBox');
-    const list = document.getElementById('attList');
-    const cnt = document.getElementById('attCount');
-    const btn = document.getElementById('attBtn');
-    if (!_pendingAtts.length) { box.style.display = 'none'; btn.classList.remove('has'); return; }
-    box.style.display = 'block';
-    cnt.textContent = '📎 ' + _pendingAtts.length + ' 个附件待发送';
-    btn.classList.add('has');
-    list.innerHTML = '';
-    _pendingAtts.forEach((a, idx) => {
-        const item = document.createElement('div');
-        item.className = 'att-item';
-        const icon = a.type === 'image' ? '🖼️' : a.type === 'table' ? '📊' : a.type === 'document' ? '📄' : '📝';
-        const nm = document.createElement('span'); nm.className = 'ai-nm'; nm.textContent = icon + ' ' + a.fileName; item.appendChild(nm);
-        const sz = document.createElement('span'); sz.className = 'ai-sz';
-        sz.textContent = a.type === 'image' ? (a.meta.sizeText || '') : (cntW(a.text) + ' 字'); item.appendChild(sz);
-        const rm = document.createElement('button'); rm.className = 'ai-rm'; rm.textContent = '×'; rm.title = '移除';
-        rm.onclick = () => { _pendingAtts.splice(idx, 1); renderAttList(); };
-        item.appendChild(rm);
+function renderAttList(){
+    const box=document.getElementById('attListBox'),list=document.getElementById('attList'),cnt=document.getElementById('attCount'),btn=document.getElementById('attBtn');
+    if(!_pendingAtts.length){box.style.display='none';btn.classList.remove('has');return;}
+    box.style.display='block';cnt.textContent='📎 '+_pendingAtts.length+' 个附件待发送';btn.classList.add('has');list.innerHTML='';
+    _pendingAtts.forEach((a,idx)=>{
+        const item=document.createElement('div');item.className='att-item';
+        const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
+        const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
+        const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
+        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';rm.onclick=()=>{_pendingAtts.splice(idx,1);renderAttList();};item.appendChild(rm);
         list.appendChild(item);
     });
 }
+function clrAtt(){_pendingAtts=[];renderAttList();}
 
-function clrAtt() { _pendingAtts = []; renderAttList(); }
-
-async function addKB(inputEl) {
-    if (!inputEl.files || !inputEl.files.length) return;
-    const c = curChat();
-    if (!c) { toast('请先创建会话', 'er'); return; }
+async function addKB(inputEl){
+    if(!inputEl.files||!inputEl.files.length)return;
+    const c=curChat();if(!c){toast('请先创建会话','er');return;}
     toast('解析知识库文件...');
-    const results = await Parser.parseFiles(inputEl.files);
-    if (!c.knowledgeBase) c.knowledgeBase = [];
-    let ok = 0;
-    results.forEach(r => {
-        if (r.ok) {
-            c.knowledgeBase.push({
-                id: gId(), name: r.result.fileName, type: r.result.type,
-                text: r.result.text || '', dataUrl: r.result.dataUrl || null,
-                meta: r.result.meta || {}, addedAt: Date.now(),
-            });
-            ok++;
-        } else { toast('❌ ' + r.file.name + '：' + r.error, 'er'); }
-    });
-    if (ok > 0) { c.updatedAt = Date.now(); await saveNow(); toast('✅ 已加入 ' + ok + ' 个知识库文件'); }
-    renderKBList();
-    inputEl.value = '';
+    const results=await Parser.parseFiles(inputEl.files);
+    if(!c.knowledgeBase)c.knowledgeBase=[];let ok=0;
+    results.forEach(r=>{if(r.ok){c.knowledgeBase.push({id:gId(),name:r.result.fileName,type:r.result.type,text:r.result.text||'',dataUrl:r.result.dataUrl||null,meta:r.result.meta||{},addedAt:Date.now()});ok++;}else toast('❌ '+r.file.name+'：'+r.error,'er');});
+    if(ok>0){c.updatedAt=Date.now();await saveNow();toast('✅ 已加入 '+ok+' 个知识库文件');}
+    renderKBList();inputEl.value='';
 }
-
-function renderKBList() {
-    const wrap = document.getElementById('kbList');
-    if (!wrap) return;
-    const c = curChat();
-    if (!c || !c.knowledgeBase || !c.knowledgeBase.length) {
-        wrap.innerHTML = '<div style="font-size:11px;color:var(--text2)">（暂无知识库文件）</div>'; return;
-    }
-    wrap.innerHTML = '';
-    c.knowledgeBase.forEach((k, idx) => {
-        const item = document.createElement('div');
-        item.className = 'att-item'; item.style.marginBottom = '4px';
-        const icon = k.type === 'image' ? '🖼️' : k.type === 'table' ? '📊' : k.type === 'document' ? '📄' : '📝';
-        const nm = document.createElement('span'); nm.className = 'ai-nm'; nm.textContent = icon + ' ' + k.name; item.appendChild(nm);
-        const sz = document.createElement('span'); sz.className = 'ai-sz';
-        sz.textContent = k.type === 'image' ? '图片' : (cntW(k.text || '') + ' 字'); item.appendChild(sz);
-        const rm = document.createElement('button'); rm.className = 'ai-rm'; rm.textContent = '×'; rm.title = '移除';
-        rm.onclick = async () => {
-            if (!confirm('从知识库移除 "' + k.name + '"？')) return;
-            c.knowledgeBase.splice(idx, 1); c.updatedAt = Date.now(); await saveNow(); renderKBList();
-        };
-        item.appendChild(rm);
-        wrap.appendChild(item);
+function renderKBList(){
+    const wrap=document.getElementById('kbList');if(!wrap)return;const c=curChat();
+    if(!c||!c.knowledgeBase||!c.knowledgeBase.length){wrap.innerHTML='<div style="font-size:11px;color:var(--text2)">（暂无知识库文件）</div>';return;}
+    wrap.innerHTML='';
+    c.knowledgeBase.forEach((k,idx)=>{
+        const item=document.createElement('div');item.className='att-item';item.style.marginBottom='4px';
+        const icon=k.type==='image'?'🖼️':k.type==='table'?'📊':k.type==='document'?'📄':'📝';
+        const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+k.name;item.appendChild(nm);
+        const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=k.type==='image'?'图片':(cntW(k.text||'')+' 字');item.appendChild(sz);
+        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';
+        rm.onclick=async()=>{if(!confirm('从知识库移除 "'+k.name+'"？'))return;c.knowledgeBase.splice(idx,1);c.updatedAt=Date.now();await saveNow();renderKBList();};
+        item.appendChild(rm);wrap.appendChild(item);
     });
 }
 
-/* ============================================================
-   ===== 快照 / 导入导出 ======================================
-   ============================================================ */
-function eSnap() {
-    const includeKey = confirm('导出快照\n\n✅ 确定 = 包含 API Key（推荐：仅本地备份用）\n❌ 取消 = 不含 API Key（推荐：分享/上传云盘用）\n\n提示：不含 Key 的快照导入后需要重新填写 Key。');
-    Snapshot.exportToFile(S, { includeKey: includeKey });
-}
-
-async function iSnap(inputEl) {
-    if (!inputEl.files || !inputEl.files.length) return;
-    const file = inputEl.files[0];
-    const mode = confirm('导入模式选择：\n\n✅ 确定 = 替换模式（清除现有数据）\n❌ 取消 = 合并模式（保留现有 + 添加快照）\n\n✨ 两种模式都会智能保护你本地已有的 API Key');
-    try {
-        const { state: importedState, source } = await Snapshot.importFromFile(file);
+function eSnap(){const includeKey=confirm('导出快照\n\n✅ 确定 = 含 API Key\n❌ 取消 = 不含 API Key');Snapshot.exportToFile(S,{includeKey:includeKey});}
+async function iSnap(inputEl){
+    if(!inputEl.files||!inputEl.files.length)return;const file=inputEl.files[0];
+    const mode=confirm('✅ 确定 = 替换模式\n❌ 取消 = 合并模式\n\n两种都会保护本地 API Key');
+    try{
+        const {state:imp,source}=await Snapshot.importFromFile(file);
         let finalState;
-        if (mode) {
-            const { state: protectedState, protectedCount } = Snapshot.protectLocalKeys(importedState, S);
-            finalState = protectedState;
-            if (protectedCount > 0) toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
-        } else {
-            const { state: protectedState, protectedCount } = Snapshot.protectLocalKeys(importedState, S);
-            finalState = Snapshot.mergeStates(S, protectedState);
-            if (protectedCount > 0) toast('🔑 已保护 ' + protectedCount + ' 个本地 API Key');
-        }
-        S = finalState;
-        if (!S.profiles[S.currentEngId]) S.currentEngId = Object.keys(S.profiles)[0] || 'zenmux';
-        await saveNow();
-        await Snapshot.snapNow(S);
-        renderAll();
-        toast('✅ 导入成功（' + source + '）：共 ' + Object.keys(S.chats || {}).length + ' 个会话');
-        closeM('snap');
-    } catch (e) { console.error('[Import]', e); toast('导入失败：' + e.message, 'er'); }
-    inputEl.value = '';
+        if(mode){const {state:ps,protectedCount}=Snapshot.protectLocalKeys(imp,S);finalState=ps;if(protectedCount>0)toast('🔑 已保护 '+protectedCount+' 个 Key');}
+        else{const {state:ps,protectedCount}=Snapshot.protectLocalKeys(imp,S);finalState=Snapshot.mergeStates(S,ps);if(protectedCount>0)toast('🔑 已保护 '+protectedCount+' 个 Key');}
+        S=finalState;if(!S.profiles[S.currentEngId])S.currentEngId=Object.keys(S.profiles)[0]||'zenmux';
+        await saveNow();await Snapshot.snapNow(S);renderAll();
+        toast('✅ 导入成功（'+source+'）：'+Object.keys(S.chats||{}).length+' 个会话');closeM('snap');
+    }catch(e){console.error('[Import]',e);toast('导入失败：'+e.message,'er');}
+    inputEl.value='';
 }
 
-/* ============================================================
-   ===== 对话导出 ==============================================
-   ============================================================ */
-function updExp() { _exportMode = document.getElementById('expFmt').value; updExpPreview(); }
-
-function buildExportContent(chatArg, modeArg) {
-    const c = chatArg || curChat();
-    const mode = modeArg || _exportMode;
-    if (!c || !c.messages || !c.messages.length) return { plain: '（无内容）', html: '<p>（无内容）</p>', title: '空对话' };
-    const title = c.title || '对话记录';
-    const isPure = mode === 'pure';
-    let plain = '', html = '';
-    if (!isPure) {
-        plain = '【' + title + '】\n导出时间：' + new Date().toLocaleString() + '\n\n';
-        html = '<h1>' + esc(title) + '</h1><p style="color:#888;font-size:12px">导出时间：' + esc(new Date().toLocaleString()) + '</p><hr>';
-    }
-    c.messages.forEach((m) => {
-        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        if (isPure) {
-            if (m.role === 'assistant' && text) {
-                plain += text + '\n\n';
-                html += UI.renderMarkdown(text) + '<hr style="border:none;border-top:1px dashed #ccc;margin:24px 0">';
-            }
-        } else {
-            const roleName = m.role === 'user' ? '👤 我' : (m.role === 'assistant' ? '🤖 AI' : '⚙️ 系统');
-            plain += '【' + roleName + '】' + (m._time ? ' ' + m._time : '') + '\n' + text + '\n\n';
-            html += '<div style="margin:18px 0;padding:12px 16px;background:' + (m.role === 'user' ? '#e3f2fd' : '#f5f5f5')
-                + ';border-radius:8px"><strong>' + esc(roleName) + '</strong>'
-                + (m._time ? ' <span style="color:#888;font-size:12px">' + esc(m._time) + '</span>' : '')
-                + '<div style="margin-top:6px">'
-                + (m.role === 'assistant' ? UI.renderMarkdown(text) : '<pre style="white-space:pre-wrap;font-family:inherit;margin:0">' + esc(text) + '</pre>')
-                + '</div></div>';
-        }
+function updExp(){_exportMode=document.getElementById('expFmt').value;updExpPreview();}
+function buildExportContent(chatArg,modeArg){
+    const c=chatArg||curChat();const mode=modeArg||_exportMode;
+    if(!c||!c.messages||!c.messages.length)return{plain:'（无内容）',html:'<p>（无内容）</p>',title:'空对话'};
+    const title=c.title||'对话记录';const isPure=mode==='pure';let plain='',html='';
+    if(!isPure){plain='【'+title+'】\n导出时间：'+new Date().toLocaleString()+'\n\n';html='<h1>'+esc(title)+'</h1><p style="color:#888;font-size:12px">导出时间：'+esc(new Date().toLocaleString())+'</p><hr>';}
+    c.messages.forEach((m)=>{
+        const text=typeof m.content==='string'?m.content:JSON.stringify(m.content);
+        if(isPure){if(m.role==='assistant'&&text){plain+=text+'\n\n';html+=UI.renderMarkdown(text)+'<hr style="border:none;border-top:1px dashed #ccc;margin:24px 0">';}}
+        else{const roleName=m.role==='user'?'👤 我':(m.role==='assistant'?'🤖 AI':'⚙️ 系统');plain+='【'+roleName+'】'+(m._time?' '+m._time:'')+'\n'+text+'\n\n';
+            html+='<div style="margin:18px 0;padding:12px 16px;background:'+(m.role==='user'?'#e3f2fd':'#f5f5f5')+';border-radius:8px"><strong>'+esc(roleName)+'</strong>'+(m._time?' <span style="color:#888;font-size:12px">'+esc(m._time)+'</span>':'')+'<div style="margin-top:6px">'+(m.role==='assistant'?UI.renderMarkdown(text):'<pre style="white-space:pre-wrap;font-family:inherit;margin:0">'+esc(text)+'</pre>')+'</div></div>';}
     });
-    return { plain: plain.trim(), html: html, title: title };
+    return{plain:plain.trim(),html:html,title:title};
 }
+function buildArchiveHtml(chat){
+    const {html,title}=buildExportContent(chat,'full');
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(title)+'</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px}code{font-family:SF Mono,Consolas,monospace}table{border-collapse:collapse;margin:12px 0}th,td{border:1px solid #ddd;padding:6px 12px}th{background:#f0f0f0}blockquote{border-left:4px solid #667eea;padding-left:12px;color:#666;margin:8px 0}img{max-width:100%}</style></head><body>'+html+'</body></html>';
+}
+function updExpPreview(){const ta=document.getElementById('expTA');if(!ta)return;ta.value=buildExportContent().plain;}
+function eTxt(){const {plain,title}=buildExportContent();dl(plain,(title||'chat')+'-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.txt','text/plain');toast('✅ TXT 已导出');}
+function eHtml(){const c=curChat();const full=buildArchiveHtml(c);const {title}=buildExportContent();dl(full,(title||'chat')+'-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.html','text/html');toast('✅ HTML 已导出');}
+function eDoc(){const {html,title}=buildExportContent();const full='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>'+esc(title)+'</title><style>body{font-family:微软雅黑,Microsoft YaHei,Arial;line-height:1.7;font-size:14px}pre{background:#f6f8fa;padding:8px;border:1px solid #ddd;font-family:Consolas,monospace}table{border-collapse:collapse}th,td{border:1px solid #999;padding:4px 8px}</style></head><body>'+html+'</body></html>';dl(full,(title||'chat')+'-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.doc','application/msword');toast('✅ Word 已导出');}
+function cpExp(){const ta=document.getElementById('expTA');if(!ta||!ta.value){toast('无内容','er');return;}ta.select();try{document.execCommand('copy');toast('✅ 已复制');}catch(e){navigator.clipboard.writeText(ta.value).then(()=>toast('✅ 已复制'));}}
 
-function buildArchiveHtml(chat) {
-    const { html, title } = buildExportContent(chat, 'full');
-    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(title) + '</title>'
-        + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">'
-        + '<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}'
-        + 'pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px}code{font-family:SF Mono,Consolas,monospace}'
-        + 'table{border-collapse:collapse;margin:12px 0}th,td{border:1px solid #ddd;padding:6px 12px}th{background:#f0f0f0}'
-        + 'blockquote{border-left:4px solid #667eea;padding-left:12px;color:#666;margin:8px 0}img{max-width:100%}</style></head><body>' + html + '</body></html>';
-}
-
-function updExpPreview() { const ta = document.getElementById('expTA'); if (!ta) return; ta.value = buildExportContent().plain; }
-function eTxt() {
-    const { plain, title } = buildExportContent();
-    dl(plain, (title || 'chat') + '-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.txt', 'text/plain');
-    toast('✅ TXT 已导出');
-}
-function eHtml() {
-    const c = curChat(); const full = buildArchiveHtml(c); const { title } = buildExportContent();
-    dl(full, (title || 'chat') + '-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.html', 'text/html');
-    toast('✅ HTML 已导出');
-}
-function eDoc() {
-    const { html, title } = buildExportContent();
-    const full = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">'
-        + '<head><meta charset="UTF-8"><title>' + esc(title) + '</title>'
-        + '<style>body{font-family:微软雅黑,Microsoft YaHei,Arial;line-height:1.7;font-size:14px}'
-        + 'pre{background:#f6f8fa;padding:8px;border:1px solid #ddd;font-family:Consolas,monospace}table{border-collapse:collapse}th,td{border:1px solid #999;padding:4px 8px}</style></head><body>' + html + '</body></html>';
-    dl(full, (title || 'chat') + '-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.doc', 'application/msword');
-    toast('✅ Word 已导出');
-}
-function cpExp() {
-    const ta = document.getElementById('expTA');
-    if (!ta || !ta.value) { toast('无内容', 'er'); return; }
-    ta.select();
-    try { document.execCommand('copy'); toast('✅ 已复制到剪贴板'); }
-    catch (e) { navigator.clipboard.writeText(ta.value).then(() => toast('✅ 已复制')); }
-}
-
-/* ============================================================
-   ===== 初始化 ================================================
-   ============================================================ */
-async function initApp() {
-    try {
-        await DB.init();
-        await DB.migrateFromLocalStorage();
-        await DB.requestPersistent();
-        await loadState();
-
-        if (!S.currentChatId || !S.chats[S.currentChatId]) {
-            if (S.chatOrder.length && S.chats[S.chatOrder[0]]) S.currentChatId = S.chatOrder[0];
-            else newChat();
-        }
-        renderAll();
-        initUpload();
-        initSnapshot();
-        await initArchive();
-        await initWorkflow();
-        checkURLImport();
-        maybePromptAuth();
+async function initApp(){
+    try{
+        await DB.init();await DB.migrateFromLocalStorage();await DB.requestPersistent();await loadState();
+        if(!S.currentChatId||!S.chats[S.currentChatId]){if(S.chatOrder.length&&S.chats[S.chatOrder[0]])S.currentChatId=S.chatOrder[0];else newChat();}
+        renderAll();initUpload();initSnapshot();await initArchive();await initWorkflow();checkURLImport();maybePromptAuth();
         toast('✅ 飞凡AI 就绪');
-    } catch (e) { console.error('[InitApp]', e); toast('初始化失败：' + e.message, 'er'); }
+    }catch(e){console.error('[InitApp]',e);toast('初始化失败：'+e.message,'er');}
+}
+function initUpload(){if(typeof Upload==='undefined')return;Upload.onFiles(handleUploadedFiles);Upload.init({dropTarget:document.getElementById('msgsArea'),dropMask:document.getElementById('dropMask'),paste:true});}
+function initSnapshot(){if(typeof Snapshot==='undefined')return;Snapshot.startAuto(S.snapInterval||5,()=>S);}
+async function initArchive(){if(typeof Archive==='undefined')return;await Archive.init({getState:()=>S,buildHtml:(chat)=>buildArchiveHtml(chat),intervalMin:S.archiveInterval!==undefined?S.archiveInterval:10,debounceMin:1});}
+async function initWorkflow(){if(typeof Workflow==='undefined')return;await Workflow.load('presets.json');renderMode();}
+
+function maybePromptAuth(){if(typeof Archive==='undefined')return;if(Archive.needsAuth())showAuthModal();}
+function showAuthModal(){const m=document.getElementById('mo-auth');if(!m)return;const n=document.getElementById('authDirName');if(n)n.textContent=Archive.getDirName()||'已设定目录';m.classList.add('show');}
+function closeAuthModal(){const m=document.getElementById('mo-auth');if(m)m.classList.remove('show');}
+async function doAuthNow(){if(typeof Archive==='undefined')return;const ok=await Archive.requestAuthNow();if(ok){closeAuthModal();toast('✅ 存档已授权');renderArchiveInfo();Archive.archiveAll({silent:true});}else toast('授权未通过，可在 ⚙️ 中重试','er');}
+
+async function checkURLImport(){
+    const params=new URLSearchParams(window.location.search);const shareUrl=params.get('share');if(!shareUrl)return;
+    try{
+        toast('正在加载分享对话...');const resp=await fetch(shareUrl);if(!resp.ok)throw new Error('HTTP '+resp.status);
+        const raw=await resp.json();let password='';
+        if(raw&&raw.__feifan_enc__&&raw.hasPassword){const pwd=prompt('该分享已加密，请输入访问口令：','');password=pwd?pwd.trim():'';}
+        const result=await Snapshot.normalizeSharedObject(raw,password);const chat=result.chat;
+        S.chats[chat.id]=chat;S.chatOrder.unshift(chat.id);S.currentChatId=chat.id;await saveNow();renderAll();
+        toast('✅ 已导入分享对话'+(result.sharedBy?'（来自: '+result.sharedBy+'）':'')+'，可继续聊天！');
+        window.history.replaceState({},'',window.location.pathname);
+    }catch(e){console.error('[URLImport]',e);toast('分享链接加载失败：'+e.message,'er');}
 }
 
-function initUpload() {
-    if (typeof Upload === 'undefined') return;
-    Upload.onFiles(handleUploadedFiles);
-    Upload.init({ dropTarget: document.getElementById('msgsArea'), dropMask: document.getElementById('dropMask'), paste: true });
-    console.log('[Upload] 已就绪');
-}
-function initSnapshot() {
-    if (typeof Snapshot === 'undefined') return;
-    Snapshot.startAuto(S.snapInterval || 5, () => S);
-}
-async function initArchive() {
-    if (typeof Archive === 'undefined') return;
-    await Archive.init({
-        getState: () => S, buildHtml: (chat) => buildArchiveHtml(chat),
-        intervalMin: S.archiveInterval !== undefined ? S.archiveInterval : 10, debounceMin: 1,
-    });
-}
-async function initWorkflow() {
-    if (typeof Workflow === 'undefined') return;
-    await Workflow.load('presets.json');
-    renderMode();
-}
-
-/* ===== 授权提示 ===== */
-function maybePromptAuth() {
-    if (typeof Archive === 'undefined') return;
-    if (Archive.needsAuth()) showAuthModal();
-}
-function showAuthModal() {
-    const m = document.getElementById('mo-auth');
-    if (!m) return;
-    const nameEl = document.getElementById('authDirName');
-    if (nameEl) nameEl.textContent = Archive.getDirName() || '已设定目录';
-    m.classList.add('show');
-}
-function closeAuthModal() { const m = document.getElementById('mo-auth'); if (m) m.classList.remove('show'); }
-async function doAuthNow() {
-    if (typeof Archive === 'undefined') return;
-    const ok = await Archive.requestAuthNow();
-    if (ok) { closeAuthModal(); toast('✅ 存档已授权，本次将自动保存'); renderArchiveInfo(); Archive.archiveAll({ silent: true }); }
-    else toast('授权未通过，可稍后在 ⚙️ 中重试', 'er');
-}
-
-/* ===== URL 导入分享 ===== */
-async function checkURLImport() {
-    const params = new URLSearchParams(window.location.search);
-    const shareUrl = params.get('share');
-    if (!shareUrl) return;
-    try {
-        toast('正在加载分享对话...');
-        const resp = await fetch(shareUrl);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const raw = await resp.json();
-        let password = '';
-        if (raw && raw.__feifan_enc__ && raw.hasPassword) { const pwd = prompt('该分享已加密，请输入访问口令：', ''); password = pwd ? pwd.trim() : ''; }
-        const result = await Snapshot.normalizeSharedObject(raw, password);
-        const chat = result.chat;
-        S.chats[chat.id] = chat; S.chatOrder.unshift(chat.id); S.currentChatId = chat.id;
-        await saveNow(); renderAll();
-        toast('✅ 已导入分享对话' + (result.sharedBy ? '（来自: ' + result.sharedBy + '）' : '') + '，可继续聊天！');
-        window.history.replaceState({}, '', window.location.pathname);
-    } catch (e) { console.error('[URLImport]', e); toast('分享链接加载失败：' + e.message, 'er'); }
-}
-
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initApp);
-else initApp();
-
-window.addEventListener('beforeunload', () => { if (_streamCtrl) { try { DB.saveState(S); } catch (e) {} } });
-document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-        const setM = document.getElementById('mo-set');
-        if (setM && setM.classList.contains('show')) renderStorageInfo();
-    }
-});
-
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(reg => console.log('[PWA] SW registered:', reg.scope)).catch(err => console.warn('[PWA] SW failed:', err));
-    });
-}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initApp);else initApp();
+window.addEventListener('beforeunload',()=>{if(_streamCtrl){try{DB.saveState(S);}catch(e){}}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){const setM=document.getElementById('mo-set');if(setM&&setM.classList.contains('show'))renderStorageInfo();}});
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').then(reg=>console.log('[PWA] SW',reg.scope)).catch(err=>console.warn('[PWA] SW fail',err));});}
