@@ -1,5 +1,5 @@
-/* ===== 飞凡AI - 主入口 (v2.4.1) ===== */
-/* v2.4.1: 工作流步骤支持多片段（隐藏段+输入框交替拼接） */
+/* ===== 飞凡AI - 主入口 (v2.5.0) ===== */
+/* v2.5.0: 敏感词拦截 + 输出泄露检测乱码 + 钉钉无感报警 */
 
 let S = {
     profiles: {}, chats: {}, chatOrder: [], currentChatId: null,
@@ -9,6 +9,7 @@ let S = {
 
 let _saveTimer=null,_saveInProgress=null,_streamCtrl=null,_pendingAtts=[],_attContinuous=false,_exportMode='full';
 let _wfGroup='__all__',_wfPresetId=null;
+var _wfAlertCtx=null;  /* 工作流报警上下文 */
 
 function scheduleSave(){ if(_saveTimer)clearTimeout(_saveTimer); _saveTimer=setTimeout(saveNow,300); }
 async function saveNow(){ if(_saveInProgress){await _saveInProgress;return;} _saveInProgress=DB.saveState(S); try{await _saveInProgress;}finally{_saveInProgress=null;} }
@@ -50,7 +51,7 @@ async function shareC(){
     const includeKB=(c.knowledgeBase&&c.knowledgeBase.length>0)?confirm('是否包含知识库文件？\n\n✅ 确定 = 包含\n❌ 取消 = 不包含'):false;
     let password='';
     if(Snapshot.SUPPORTS_CRYPTO){
-        const wantPwd=confirm('是否设置访问口令？\n\n✅ 确定 = 设口令（对方需输入）\n❌ 取消 = 不设（仅飞凡AI用户可打开）');
+        const wantPwd=confirm('是否设置访问口令？\n\n✅ 确定 = 设口令\n❌ 取消 = 不设（仅飞凡AI用户可打开）');
         if(wantPwd){const pwd=prompt('请输入访问口令：','');if(pwd&&pwd.trim())password=pwd.trim();else toast('未输入口令，仅用应用密钥加密');}
     }
     await Snapshot.shareChat(c,{includeKB:includeKB,sharedBy:S.userName||'',encrypt:true,password:password});
@@ -59,22 +60,42 @@ async function shareC(){
 function togTheme(){S.theme=S.theme==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',S.theme==='dark'?'dark':'');document.getElementById('themeBtn').textContent=S.theme==='dark'?'☀️':'🌙';scheduleSave();}
 function updUserName(v){S.userName=(v||'').trim();scheduleSave();}
 
-/* ===== 模式切换 + 工作流 ===== */
+/* ============================================================
+   ===== 安全：报警 + 敏感词拦截 (v2.5.0) =====================
+   ============================================================ */
+function fireAlert(text){ if(typeof Workflow!=='undefined') Workflow.sendAlert(text); }
+
+function guardSensitive(inputText, sceneInfo){
+    if(typeof Workflow==='undefined') return false;
+    const hit = Workflow.checkSensitive(inputText);
+    if(hit){
+        const c=curChat();
+        fireAlert('⚠️ 敏感词拦截\n用户：'+(S.userName||'未署名')
+            +'\n对话：《'+((c&&c.title)||'未命名')+'》'
+            +'\n场景：'+(sceneInfo||'自由对话')
+            +'\n命中敏感词：'+hit
+            +'\n完整输入：'+inputText
+            +'\n时间：'+new Date().toLocaleString());
+        toast('⚠️ 输入包含受限内容，已阻止发送','er');
+        return true;
+    }
+    return false;
+}
+
+/* ============================================================
+   ===== 模式切换 + 工作流 =====================================
+   ============================================================ */
 function setMode(mode){S.uiMode=(mode==='workflow')?'workflow':'chat';scheduleSave();renderMode();}
 function renderMode(){
     const isWf=S.uiMode==='workflow';
-    const wfBar=document.getElementById('wfBar');
-    if(wfBar)wfBar.style.display=isWf?'block':'none';
+    const wfBar=document.getElementById('wfBar');if(wfBar)wfBar.style.display=isWf?'block':'none';
     const cb=document.getElementById('modeChatBtn'),wb=document.getElementById('modeWfBtn');
-    if(cb)cb.classList.toggle('act',!isWf);
-    if(wb)wb.classList.toggle('act',isWf);
+    if(cb)cb.classList.toggle('act',!isWf);if(wb)wb.classList.toggle('act',isWf);
     if(isWf)renderWorkflow();
 }
 function renderWorkflow(){
     if(typeof Workflow==='undefined'||!Workflow.isLoaded()){
-        const box=document.getElementById('wfCmds');
-        if(box)box.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">⚠️ 预设库未加载（presets.json）</div>';
-        return;
+        const box=document.getElementById('wfCmds');if(box)box.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">⚠️ 预设库未加载（presets.json）</div>';return;
     }
     const grpSel=document.getElementById('wfGroupSel');
     if(grpSel&&!grpSel.dataset.filled){
@@ -96,43 +117,38 @@ function onWfGroupChange(v){_wfGroup=v||'__all__';_wfPresetId=null;renderWorkflo
 function onWfSearch(){renderWorkflow();}
 function onWfPresetChange(v){_wfPresetId=v||null;renderWfSteps();}
 
-/* 渲染步骤：每步 = 步骤名 + 若干输入框（对应 input 片段）+ 发送按钮 */
 function renderWfSteps(){
-    const box=document.getElementById('wfCmds');
-    if(!box)return;
+    const box=document.getElementById('wfCmds');if(!box)return;
     if(!_wfPresetId){box.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">请选择一个预设</div>';return;}
     const steps=Workflow.getSteps(_wfPresetId);
     if(!steps.length){box.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">该预设暂无步骤</div>';return;}
     box.innerHTML='';
     steps.forEach((s,i)=>{
         const inputs=Workflow.getInputs(_wfPresetId,s.id);
-        const wrap=document.createElement('div');
-        wrap.className='wf-cmd';
+        const wrap=document.createElement('div');wrap.className='wf-cmd';
         let html='<div class="wf-cmd-title">'+(i+1)+'. '+esc(s.name)+'</div>';
         if(inputs.length){
-            inputs.forEach(inp=>{
-                html+='<textarea class="wf-cmd-input" data-seg="'+inp.segIndex+'" id="wfin_'+esc(s.id)+'_'+inp.segIndex+'" rows="2" placeholder="'+esc(inp.placeholder)+'"></textarea>';
-            });
-        }else{
-            html+='<div style="font-size:12px;color:var(--text2);margin-bottom:6px">（此步骤无需输入，直接发送）</div>';
-        }
+            inputs.forEach(inp=>{html+='<textarea class="wf-cmd-input" data-seg="'+inp.segIndex+'" id="wfin_'+esc(s.id)+'_'+inp.segIndex+'" rows="2" placeholder="'+esc(inp.placeholder)+'"></textarea>';});
+        }else{html+='<div style="font-size:12px;color:var(--text2);margin-bottom:6px">（此步骤无需输入，直接发送）</div>';}
         html+='<button class="btn btn-p btn-s wf-cmd-send" onclick="wfSend(\''+esc(s.id)+'\')">▶ 用此步骤发送</button>';
-        wrap.innerHTML=html;
-        box.appendChild(wrap);
+        wrap.innerHTML=html;box.appendChild(wrap);
     });
 }
 
 async function wfSend(stepId){
     if(!_wfPresetId){toast('请先选择预设','er');return;}
     if(_streamCtrl){toast('请等待当前回复完成','er');return;}
-    // 收集该步骤所有输入框的值
-    const inputsMap={};
+    const inputsMap={};let joinedInput='';
     const els=document.querySelectorAll('[id^="wfin_'+stepId+'_"]');
-    els.forEach(el=>{ const seg=parseInt(el.getAttribute('data-seg'),10); inputsMap[seg]=el.value; });
+    els.forEach(el=>{const seg=parseInt(el.getAttribute('data-seg'),10);inputsMap[seg]=el.value;joinedInput+=' '+el.value;});
+    const presetName=Workflow.getPresetName(_wfPresetId);
+    /* 敏感词拦截 */
+    if(guardSensitive(joinedInput.trim(),'工作流·预设《'+presetName+'》'))return;
     let built;
-    try{ built=await Workflow.buildSend(_wfPresetId,stepId,inputsMap); }
-    catch(e){ toast('指令解密失败：'+e.message,'er'); return; }
-    await coreSend({ visibleText:built.displayText, actualText:built.sendText, titleHint:built.stepName });
+    try{built=await Workflow.buildSend(_wfPresetId,stepId,inputsMap);}
+    catch(e){toast('指令解密失败：'+e.message,'er');return;}
+    _wfAlertCtx={user:S.userName||'未署名',preset:presetName,step:built.stepName,input:joinedInput.trim()};
+    await coreSend({visibleText:built.displayText,actualText:built.sendText,titleHint:built.stepName,_wfLeakCheck:true});
     els.forEach(el=>el.value='');
 }
 
@@ -285,7 +301,9 @@ async function renderStorageInfo(){
     catch(e){el.textContent='存储信息获取失败';}
 }
 
-/* ===== 核心发送 ===== */
+/* ============================================================
+   ===== 核心发送（含泄露检测乱码） ===========================
+   ============================================================ */
 async function coreSend(opts){
     opts=opts||{};
     let c=curChat();if(!c){newChat();c=curChat();}
@@ -324,16 +342,38 @@ async function coreSend(opts){
     _streamCtrl=API.streamChat(profile,sendMsgs,{
         onStart:()=>{},
         onDelta:(d,full)=>{aiMsg.content=full;updater(full);if(Date.now()-lastSaveTime>SAVE_INTERVAL){lastSaveTime=Date.now();scheduleSave();}},
-        onDone:async(full)=>{aiMsg.content=full;aiMsg._streaming=false;c.updatedAt=Date.now();_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,full);await saveNow();renderMs();renderSB();if(typeof Archive!=='undefined')Archive.notifyActivity();},
+        onDone:async(full)=>{
+            let finalText=full;
+            /* ★ 泄露检测：相似度超阈值 → 整条乱码 + 报警 */
+            if(opts._wfLeakCheck&&typeof Workflow!=='undefined'&&Workflow.isLeak(full)){
+                const masked='█'.repeat(Math.min(Math.max(full.length,20),200));
+                finalText='⚠️ 检测到尝试获取受保护内容，本次输出已被屏蔽。\n\n'+masked;
+                const ctx=_wfAlertCtx||{};const cc=curChat();
+                fireAlert('🚨 输出乱码警报（疑似套取隐藏指令）\n'+
+                    '用户：'+(ctx.user||S.userName||'未署名')+'\n'+
+                    '对话：《'+((cc&&cc.title)||'未命名')+'》\n'+
+                    '预设：'+(ctx.preset||'-')+'\n'+
+                    '步骤：'+(ctx.step||'-')+'\n'+
+                    '他此前输入的内容为：'+(ctx.input||'-')+'\n'+
+                    '时间：'+new Date().toLocaleString());
+            }
+            aiMsg.content=finalText;aiMsg._streaming=false;c.updatedAt=Date.now();_streamCtrl=null;
+            sendBtn.classList.remove('stop');sendBtn.textContent='➤';
+            UI.fullRender(lastMsgEl,finalText);await saveNow();renderMs();renderSB();
+            if(typeof Archive!=='undefined')Archive.notifyActivity();
+        },
         onAbort:async(full)=>{aiMsg.content=full;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,full||'_（已中断）_');await saveNow();renderMs();toast('已停止');if(typeof Archive!=='undefined')Archive.notifyActivity();},
         onError:async(err)=>{console.error('[Send]',err);aiMsg.content=(aiMsg.content||'')+'\n\n❌ **错误**：'+err.message;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,aiMsg.content);await saveNow();toast('请求失败：'+err.message,'er');},
     });
 }
 
+/* ===== 自由对话发送 ===== */
 async function send(){
     if(_streamCtrl){_streamCtrl.abort();return;}
     const inp=document.getElementById('uIn');const text=(inp.value||'').trim();
     if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}
+    /* 敏感词拦截 */
+    if(text&&guardSensitive(text,'自由对话'))return;
     const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';
     const attsForUser=_pendingAtts.slice();
     inp.value='';aRsz(inp);_pendingAtts=[];renderAttList();
