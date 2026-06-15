@@ -338,7 +338,7 @@ async function coreSend(opts){
         onDone:async(full)=>{
             let finalText=full;
             if(opts._wfLeakCheck&&typeof Workflow!=='undefined'&&Workflow.isLeak(full)){
-                const masked='█'.repeat(Math.min(Math.max(full.length,20),200));
+                const masked='\u2588'.repeat(Math.min(Math.max(full.length,20),200));
                 finalText='⚠️ 检测到尝试获取受保护内容，本次输出已被屏蔽。\n\n'+masked;
                 const ctx=_wfAlertCtx||{};const cc=curChat();
                 const reply20=String(full).replace(/\s+/g,'').slice(0,20);
