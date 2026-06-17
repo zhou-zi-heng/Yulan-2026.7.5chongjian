@@ -441,3 +441,37 @@ body{
 }
 .lightbox.show{display:flex}
 .lightbox img{max-width:92vw;max-height:92vh;border-radius:8px}
+/* ===== v2.6.0 文件夹 / 日期分组 / 拖拽 ===== */
+.ci.dragging{opacity:.45}
+.cl.with-dategroup{margin-bottom:2px}
+
+/* 日期分组小标题 */
+.dg-lbl{
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:10px;color:var(--text2);font-weight:600;
+    padding:4px 9px 2px;cursor:pointer;user-select:none;
+}
+.dg-lbl:hover{color:var(--pri)}
+.dg-lbl .fd-cnt{background:var(--pri-l);color:var(--pri);border-radius:8px;padding:0 6px;font-size:10px}
+
+/* 文件夹 */
+#folderArea{display:flex;flex-direction:column;gap:2px;margin-bottom:2px}
+.folder{border-radius:6px}
+.folder.drop-hover{background:var(--pri-l);outline:2px dashed var(--pri);outline-offset:-2px}
+.folder-hdr{
+    display:flex;align-items:center;gap:5px;
+    padding:6px 9px;border-radius:6px;cursor:pointer;
+    font-size:12px;font-weight:600;color:var(--text);user-select:none;
+}
+.folder-hdr:hover{background:var(--pri-l)}
+.folder-hdr .fd-tog{font-size:9px;color:var(--text2);width:10px;flex-shrink:0}
+.folder-hdr .fd-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folder-hdr .fd-cnt{background:var(--pri-l);color:var(--pri);border-radius:8px;padding:0 6px;font-size:10px;flex-shrink:0}
+.folder-hdr .fd-acts{display:none;gap:2px;flex-shrink:0}
+.folder-hdr:hover .fd-acts{display:flex}
+.folder-hdr .fd-acts button{background:none;border:none;cursor:pointer;font-size:11px;padding:1px 2px;border-radius:3px;color:var(--text2)}
+.folder-hdr .fd-acts button:hover{color:var(--err)}
+.folder-cl{padding-left:12px}
+.folder.collapsed .folder-cl{display:none}
+@media(hover:none){.folder-hdr .fd-acts{display:flex}}
+
