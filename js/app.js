@@ -1,22 +1,39 @@
-/* ===== 飞凡AI - 主入口 (v2.5.1) ===== */
-/* v2.5.1: 工作流右侧栏 + 报警完善（乱码报前20字+相似度） */
+/* ===== 飞凡AI - 主入口 (v2.6.0) ===== */
+/* v2.6.0: 对话级模式锁定 + 自由模式不受限 + 文件夹/日期分组/拖拽 */
 
 let S = {
     profiles: {}, chats: {}, chatOrder: [], currentChatId: null,
     currentEngId: 'zenmux', theme: 'light', snapInterval: 5,
     userName: '', archiveInterval: 10, uiMode: 'chat',
+    defaultMode: 'free', folders: [], folderCollapsed: {},
 };
 
 let _saveTimer=null,_saveInProgress=null,_streamCtrl=null,_pendingAtts=[],_attContinuous=false,_exportMode='full';
 let _wfGroup='__all__',_wfPresetId=null;
 var _wfAlertCtx=null;
+let _dragChatId=null;
+
+const MODE_SUFFIX={free:'-自由',workflow:'-工作流'};
+function modeLabel(m){return m==='workflow'?'工作流':'自由';}
+
+/* 标题强制带后缀（任何标题都带） */
+function buildTitleWithSuffix(rawTitle,mode){
+    let t=(rawTitle||'').trim()||'新对话';
+    // 去掉已有的两种后缀，避免重复叠加
+    t=t.replace(/-自由$/,'').replace(/-工作流$/,'').trim()||'新对话';
+    const suf=MODE_SUFFIX[mode]||MODE_SUFFIX.free;
+    return t+suf;
+}
 
 function scheduleSave(){ if(_saveTimer)clearTimeout(_saveTimer); _saveTimer=setTimeout(saveNow,300); }
 async function saveNow(){ if(_saveInProgress){await _saveInProgress;return;} _saveInProgress=DB.saveState(S); try{await _saveInProgress;}finally{_saveInProgress=null;} }
 async function loadState(){
     const loaded=await DB.loadState();
     if(loaded&&typeof loaded==='object'){
-        S=Object.assign({profiles:{},chats:{},chatOrder:[],currentChatId:null,currentEngId:'zenmux',theme:'light',snapInterval:5,userName:'',archiveInterval:10,uiMode:'chat'},loaded);
+        S=Object.assign({profiles:{},chats:{},chatOrder:[],currentChatId:null,currentEngId:'zenmux',theme:'light',snapInterval:5,userName:'',archiveInterval:10,uiMode:'chat',defaultMode:'free',folders:[],folderCollapsed:{}},loaded);
+        if(!Array.isArray(S.folders))S.folders=[];
+        if(!S.folderCollapsed||typeof S.folderCollapsed!=='object')S.folderCollapsed={};
+        if(!S.defaultMode)S.defaultMode='free';
         if(!S.chatOrder||!S.chatOrder.length) S.chatOrder=Object.keys(S.chats||{}).sort((a,b)=>(S.chats[b].updatedAt||0)-(S.chats[a].updatedAt||0));
         for(const cid in S.chats){const c=S.chats[cid];if(c.messages)c.messages.forEach(m=>{if(m._streaming){m._streaming=false;m._interrupted=true;}});}
     }
@@ -31,16 +48,40 @@ async function loadState(){
 function curChat(){ return S.currentChatId?(S.chats[S.currentChatId]||null):null; }
 function curProfile(){ return S.profiles[S.currentEngId]||S.profiles[Object.keys(S.profiles)[0]]; }
 
+/* 取当前对话的有效模式（旧对话无 mode → free，但未锁定时允许选） */
+function chatMode(c){ if(!c)return S.defaultMode||'free'; return c.mode||'free'; }
+function isModeLocked(c){ return !!(c&&c.modeLocked); }
+
 function newChat(){
     const id=gId();
-    S.chats[id]={id:id,title:'新对话',messages:[],systemPrompt:'',knowledgeBase:[],isPinned:false,isArchived:false,createdAt:Date.now(),updatedAt:Date.now()};
-    S.chatOrder.unshift(id);S.currentChatId=id;scheduleSave();renderAll();
+    const mode=(S.defaultMode==='workflow')?'workflow':'free';
+    S.chats[id]={id:id,title:buildTitleWithSuffix('新对话',mode),messages:[],systemPrompt:'',knowledgeBase:[],isPinned:false,isArchived:false,createdAt:Date.now(),updatedAt:Date.now(),mode:mode,modeLocked:false,folderId:null};
+    S.chatOrder.unshift(id);S.currentChatId=id;
+    // 新对话默认模式同步到顶部 UI
+    S.uiMode=(mode==='workflow')?'workflow':'chat';
+    scheduleSave();renderAll();
     if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}
 }
-function switchChat(id){if(!S.chats[id])return;S.currentChatId=id;scheduleSave();renderAll();if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}}
+function switchChat(id){
+    if(!S.chats[id])return;S.currentChatId=id;
+    const c=S.chats[id];
+    // 同步顶部模式显示为该对话的模式
+    S.uiMode=(chatMode(c)==='workflow')?'workflow':'chat';
+    scheduleSave();renderAll();
+    if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}
+}
 function delChat(id){if(!confirm('确认删除此对话？'))return;delete S.chats[id];S.chatOrder=S.chatOrder.filter(x=>x!==id);if(S.currentChatId===id)S.currentChatId=S.chatOrder[0]||null;scheduleSave();renderAll();}
-function renameChat(id){const c=S.chats[id];if(!c)return;const nv=prompt('重命名对话：',c.title);if(nv&&nv.trim()){c.title=nv.trim();c.updatedAt=Date.now();scheduleSave();renderAll();}}
-function updTitle(v){const c=curChat();if(!c)return;c.title=(v||'').trim()||'新对话';c.updatedAt=Date.now();scheduleSave();renderSB();}
+function renameChat(id){
+    const c=S.chats[id];if(!c)return;
+    // 给用户看的是去后缀的标题
+    const bare=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();
+    const nv=prompt('重命名对话（系统会自动加模式后缀）：',bare);
+    if(nv!==null){c.title=buildTitleWithSuffix(nv,chatMode(c));c.updatedAt=Date.now();scheduleSave();renderAll();}
+}
+function updTitle(v){const c=curChat();if(!c)return;c.title=buildTitleWithSuffix(v,chatMode(c));c.updatedAt=Date.now();scheduleSave();
+    // 输入框回填带后缀的标题
+    const ti=document.getElementById('titleIn');if(ti)ti.value=c.title;
+    renderSB();}
 function pinC(){const c=curChat();if(!c)return;c.isPinned=!c.isPinned;c.updatedAt=Date.now();scheduleSave();renderAll();toast(c.isPinned?'已置顶':'已取消置顶');}
 function arcC(){const c=curChat();if(!c)return;c.isArchived=!c.isArchived;c.updatedAt=Date.now();scheduleSave();renderAll();toast(c.isArchived?'已归档':'已取消归档');}
 function clrC(){const c=curChat();if(!c)return;if(!confirm('清空当前对话所有消息？'))return;c.messages=[];c.updatedAt=Date.now();scheduleSave();renderMs();}
@@ -59,6 +100,7 @@ async function shareC(){
 
 function togTheme(){S.theme=S.theme==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',S.theme==='dark'?'dark':'');document.getElementById('themeBtn').textContent=S.theme==='dark'?'☀️':'🌙';scheduleSave();}
 function updUserName(v){S.userName=(v||'').trim();scheduleSave();}
+function updDefaultMode(v){S.defaultMode=(v==='workflow')?'workflow':'free';scheduleSave();toast('默认新建模式：'+modeLabel(S.defaultMode));}
 
 /* ===== 安全：报警 + 敏感词拦截 ===== */
 function fireAlert(text){ if(typeof Workflow!=='undefined') Workflow.sendAlert(text); }
@@ -69,7 +111,7 @@ function guardSensitive(inputText, sceneInfo){
         const c=curChat();
         fireAlert('⚠️ 敏感词拦截\n用户：'+(S.userName||'未署名')
             +'\n对话：《'+((c&&c.title)||'未命名')+'》'
-            +'\n场景：'+(sceneInfo||'自由对话')
+            +'\n场景：'+(sceneInfo||'工作流')
             +'\n命中敏感词：'+hit
             +'\n完整输入：'+inputText
             +'\n时间：'+new Date().toLocaleString());
@@ -79,14 +121,44 @@ function guardSensitive(inputText, sceneInfo){
     return false;
 }
 
-/* ===== 模式切换 + 工作流（右侧栏） ===== */
-function setMode(mode){S.uiMode=(mode==='workflow')?'workflow':'chat';scheduleSave();renderMode();}
+/* ===== 模式切换（对话级 + 锁定） ===== */
+function setMode(mode){
+    const target=(mode==='workflow')?'workflow':'free';
+    const c=curChat();
+    if(!c){ // 没有对话，仅切 UI（极少见）
+        S.uiMode=(target==='workflow')?'workflow':'chat';renderMode();return;
+    }
+    const cur=chatMode(c);
+    if(cur===target){S.uiMode=(target==='workflow')?'workflow':'chat';renderMode();return;}
+    // 已锁定 → 禁止切换
+    if(isModeLocked(c)){
+        toast('该对话已锁定为「'+modeLabel(cur)+'」模式，请新开对话切换','er');
+        // UI 回弹到当前真实模式
+        S.uiMode=(cur==='workflow')?'workflow':'chat';renderMode();return;
+    }
+    // 未锁定 → 弹确认
+    if(!confirm('确定将本对话切换为「'+modeLabel(target)+'」模式？\n\n发送第一条消息后将永久锁定，无法再改。')){
+        S.uiMode=(cur==='workflow')?'workflow':'chat';renderMode();return;
+    }
+    c.mode=target;
+    c.title=buildTitleWithSuffix(c.title,target);
+    c.updatedAt=Date.now();
+    S.uiMode=(target==='workflow')?'workflow':'chat';
+    scheduleSave();renderAll();
+    toast('已切换为「'+modeLabel(target)+'」模式');
+}
 function renderMode(){
-    const isWf=S.uiMode==='workflow';
+    const c=curChat();
+    const isWf=(chatMode(c)==='workflow');
+    // 顶部 uiMode 与对话模式保持一致
+    S.uiMode=isWf?'workflow':'chat';
     const wfBar=document.getElementById('wfBar');
-    if(wfBar)wfBar.classList.toggle('show',isWf);   /* 右侧栏用 class 控制 */
+    if(wfBar)wfBar.classList.toggle('show',isWf);
     const cb=document.getElementById('modeChatBtn'),wb=document.getElementById('modeWfBtn');
     if(cb)cb.classList.toggle('act',!isWf);if(wb)wb.classList.toggle('act',isWf);
+    // 锁定态视觉提示
+    const locked=isModeLocked(c);
+    [cb,wb].forEach(btn=>{if(!btn)return;btn.classList.toggle('locked',locked);});
     if(isWf)renderWorkflow();
 }
 function renderWorkflow(){
@@ -132,12 +204,15 @@ function renderWfSteps(){
 }
 
 async function wfSend(stepId){
+    const c=curChat();
+    if(c&&chatMode(c)!=='workflow'){toast('当前对话不是工作流模式','er');return;}
     if(!_wfPresetId){toast('请先选择预设','er');return;}
     if(_streamCtrl){toast('请等待当前回复完成','er');return;}
     const inputsMap={};let joinedInput='';
     const els=document.querySelectorAll('[id^="wfin_'+stepId+'_"]');
     els.forEach(el=>{const seg=parseInt(el.getAttribute('data-seg'),10);inputsMap[seg]=el.value;joinedInput+=' '+el.value;});
     const presetName=Workflow.getPresetName(_wfPresetId);
+    // 工作流模式 → 敏感词检测
     if(guardSensitive(joinedInput.trim(),'工作流·预设《'+presetName+'》'))return;
     let built;
     try{built=await Workflow.buildSend(_wfPresetId,stepId,inputsMap);}
@@ -147,25 +222,155 @@ async function wfSend(stepId){
     els.forEach(el=>el.value='');
 }
 
-/* ===== 侧边栏 ===== */
+/* ===== 文件夹管理 ===== */
+function addFolder(){
+    const name=prompt('新建文件夹名称：','新文件夹');
+    if(!name||!name.trim())return;
+    const id='fd_'+gId().slice(0,8);
+    S.folders.push({id:id,name:name.trim()});
+    scheduleSave();renderSB();
+}
+function renameFolder(fid){
+    const f=S.folders.find(x=>x.id===fid);if(!f)return;
+    const nv=prompt('重命名文件夹：',f.name);
+    if(nv&&nv.trim()){f.name=nv.trim();scheduleSave();renderSB();}
+}
+function delFolder(fid){
+    const f=S.folders.find(x=>x.id===fid);if(!f)return;
+    if(!confirm('删除文件夹「'+f.name+'」？\n\n文件夹内的对话不会被删除，会移回未分类。'))return;
+    for(const cid in S.chats){if(S.chats[cid].folderId===fid)S.chats[cid].folderId=null;}
+    S.folders=S.folders.filter(x=>x.id!==fid);
+    delete S.folderCollapsed[fid];
+    scheduleSave();renderSB();
+}
+function toggleFolder(fid){
+    S.folderCollapsed[fid]=!S.folderCollapsed[fid];
+    scheduleSave();renderSB();
+}
+function moveChatToFolder(cid,fid){
+    const c=S.chats[cid];if(!c)return;
+    c.folderId=fid||null;c.updatedAt=Date.now();
+    scheduleSave();renderSB();
+}
+
+/* 日期分组归类 */
+function dateGroupOf(ts){
+    if(!ts)return '更早';
+    const now=new Date();const d=new Date(ts);
+    const startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+    const startYest=startToday-86400000;
+    const day=now.getDay()||7; // 周一=1
+    const startWeek=startToday-(day-1)*86400000;
+    if(ts>=startToday)return '今天';
+    if(ts>=startYest)return '昨天';
+    if(ts>=startWeek)return '本周';
+    return '更早';
+}
+
+/* ===== 侧边栏（文件夹 + 日期分组 + 搜索 + 拖拽） ===== */
+function _makeChatLi(id){
+    const c=S.chats[id];
+    const li=document.createElement('li');
+    li.className='ci'+(id===S.currentChatId?' act':'');
+    li.draggable=true;
+    li.dataset.cid=id;
+    li.onclick=()=>switchChat(id);
+    li.ondragstart=(e)=>{_dragChatId=id;li.classList.add('dragging');try{e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}catch(err){}};
+    li.ondragend=()=>{_dragChatId=null;li.classList.remove('dragging');};
+    const span=document.createElement('span');span.className='ct';span.textContent=c.title||'新对话';li.appendChild(span);
+    const acts=document.createElement('div');acts.className='ia';
+    const rb=document.createElement('button');rb.textContent='✏️';rb.title='重命名';rb.onclick=(e)=>{e.stopPropagation();renameChat(id);};
+    const db=document.createElement('button');db.textContent='🗑️';db.title='删除';db.onclick=(e)=>{e.stopPropagation();delChat(id);};
+    acts.appendChild(rb);acts.appendChild(db);li.appendChild(acts);
+    return li;
+}
+
 function renderSB(){
     const search=(document.getElementById('schIn').value||'').toLowerCase();
-    const pinList=document.getElementById('pinList'),chatList=document.getElementById('chatList'),arcList=document.getElementById('arcList');
-    pinList.innerHTML='';chatList.innerHTML='';arcList.innerHTML='';
-    const order=S.chatOrder.filter(id=>S.chats[id]);let pinCount=0,arcCount=0;
-    order.forEach(id=>{
-        const c=S.chats[id];
-        if(search){const hay=(c.title+' '+(c.messages||[]).map(m=>typeof m.content==='string'?m.content:'').join(' ')).toLowerCase();if(!hay.includes(search))return;}
-        const li=document.createElement('li');li.className='ci'+(id===S.currentChatId?' act':'');li.onclick=()=>switchChat(id);
-        const span=document.createElement('span');span.className='ct';span.textContent=c.title||'新对话';li.appendChild(span);
-        const acts=document.createElement('div');acts.className='ia';
-        const rb=document.createElement('button');rb.textContent='✏️';rb.title='重命名';rb.onclick=(e)=>{e.stopPropagation();renameChat(id);};
-        const db=document.createElement('button');db.textContent='🗑️';db.title='删除';db.onclick=(e)=>{e.stopPropagation();delChat(id);};
-        acts.appendChild(rb);acts.appendChild(db);li.appendChild(acts);
-        if(c.isArchived){arcList.appendChild(li);arcCount++;}else if(c.isPinned){pinList.appendChild(li);pinCount++;}else chatList.appendChild(li);
+    const pinList=document.getElementById('pinList'),chatList=document.getElementById('chatList'),arcList=document.getElementById('arcList'),folderArea=document.getElementById('folderArea');
+    pinList.innerHTML='';chatList.innerHTML='';arcList.innerHTML='';if(folderArea)folderArea.innerHTML='';
+
+    const order=S.chatOrder.filter(id=>S.chats[id]);
+    function match(c){
+        if(!search)return true;
+        const hay=(c.title+' '+(c.messages||[]).map(m=>typeof m.content==='string'?m.content:'').join(' ')).toLowerCase();
+        return hay.includes(search);
+    }
+
+    /* 搜索模式：平铺所有匹配，忽略分组/文件夹 */
+    if(search){
+        if(folderArea)folderArea.style.display='none';
+        document.getElementById('pinLbl').style.display='none';
+        document.getElementById('arcLbl').style.display='none';
+        let n=0;
+        order.forEach(id=>{const c=S.chats[id];if(!match(c))return;chatList.appendChild(_makeChatLi(id));n++;});
+        if(!n)chatList.innerHTML='<li style="font-size:12px;color:var(--text2);padding:8px">无匹配对话</li>';
+        renderBadge();return;
+    }
+
+    if(folderArea)folderArea.style.display='';
+    let pinCount=0,arcCount=0;
+
+    /* 1. 置顶 */
+    order.forEach(id=>{const c=S.chats[id];if(c.isArchived||!c.isPinned)return;pinList.appendChild(_makeChatLi(id));pinCount++;});
+
+    /* 2. 文件夹区 */
+    if(folderArea){
+        S.folders.forEach(f=>{
+            const collapsed=!!S.folderCollapsed[f.id];
+            const fEl=document.createElement('div');fEl.className='folder'+(collapsed?' collapsed':'');
+            fEl.dataset.fid=f.id;
+            // 拖拽放置目标
+            fEl.ondragover=(e)=>{e.preventDefault();e.dataTransfer.dropEffect='move';fEl.classList.add('drop-hover');};
+            fEl.ondragleave=()=>fEl.classList.remove('drop-hover');
+            fEl.ondrop=(e)=>{e.preventDefault();fEl.classList.remove('drop-hover');const cid=_dragChatId||e.dataTransfer.getData('text/plain');if(cid)moveChatToFolder(cid,f.id);};
+
+            const hdr=document.createElement('div');hdr.className='folder-hdr';
+            const childCount=order.filter(id=>S.chats[id].folderId===f.id&&!S.chats[id].isArchived&&!S.chats[id].isPinned).length;
+            hdr.innerHTML='<span class="fd-tog">'+(collapsed?'▶':'▼')+'</span><span class="fd-name">📁 '+esc(f.name)+'</span><span class="fd-cnt">'+childCount+'</span>';
+            hdr.onclick=()=>toggleFolder(f.id);
+            const fActs=document.createElement('div');fActs.className='fd-acts';
+            const fr=document.createElement('button');fr.textContent='✏️';fr.title='重命名文件夹';fr.onclick=(e)=>{e.stopPropagation();renameFolder(f.id);};
+            const fdd=document.createElement('button');fdd.textContent='🗑️';fdd.title='删除文件夹';fdd.onclick=(e)=>{e.stopPropagation();delFolder(f.id);};
+            fActs.appendChild(fr);fActs.appendChild(fdd);hdr.appendChild(fActs);
+            fEl.appendChild(hdr);
+
+            const ul=document.createElement('ul');ul.className='cl folder-cl';
+            if(!collapsed){
+                order.forEach(id=>{const c=S.chats[id];if(c.isArchived||c.isPinned||c.folderId!==f.id)return;ul.appendChild(_makeChatLi(id));});
+            }
+            fEl.appendChild(ul);
+            folderArea.appendChild(fEl);
+        });
+    }
+
+    /* 3. 未分类区（按日期分组） */
+    const ungrouped=order.filter(id=>{const c=S.chats[id];return !c.isArchived&&!c.isPinned&&!c.folderId;});
+    const groups={'今天':[],'昨天':[],'本周':[],'更早':[]};
+    ungrouped.forEach(id=>{groups[dateGroupOf(S.chats[id].updatedAt)].push(id);});
+    chatList.classList.add('with-dategroup');
+    ['今天','昨天','本周','更早'].forEach(g=>{
+        if(!groups[g].length)return;
+        const key='dg_'+g;
+        const collapsed=!!S.folderCollapsed[key];
+        const lbl=document.createElement('div');lbl.className='dg-lbl';
+        lbl.innerHTML='<span>'+(collapsed?'▶':'▼')+' '+g+'</span><span class="fd-cnt">'+groups[g].length+'</span>';
+        lbl.onclick=()=>{S.folderCollapsed[key]=!S.folderCollapsed[key];scheduleSave();renderSB();};
+        chatList.appendChild(lbl);
+        if(!collapsed)groups[g].forEach(id=>chatList.appendChild(_makeChatLi(id)));
     });
+    // 未分类区也作为"拖出文件夹"的目标
+    chatList.ondragover=(e)=>{e.preventDefault();e.dataTransfer.dropEffect='move';};
+    chatList.ondrop=(e)=>{e.preventDefault();const cid=_dragChatId||e.dataTransfer.getData('text/plain');if(cid&&S.chats[cid]&&S.chats[cid].folderId){moveChatToFolder(cid,null);}};
+
+    /* 4. 归档 */
+    order.forEach(id=>{const c=S.chats[id];if(!c.isArchived)return;arcList.appendChild(_makeChatLi(id));arcCount++;});
+
     document.getElementById('pinLbl').style.display=pinCount?'block':'none';
     document.getElementById('arcLbl').style.display=arcCount?'block':'none';
+    renderBadge();
+}
+function renderBadge(){
     const p=curProfile();
     document.getElementById('badge').innerHTML=p?'当前引擎: <strong>'+esc(p.name)+'</strong><br>模型: '+esc(p.model||'-'):'请先在 ⚙️ 中配置引擎';
 }
@@ -177,7 +382,7 @@ function renderMs(){
         onDelete:(m)=>{c.messages=c.messages.filter(x=>x!==m);c.updatedAt=Date.now();scheduleSave();renderMs();},
         onRegen:(m)=>regenerate(m),
     });
-    document.getElementById('titleIn').value=c.title||'';
+    const ti=document.getElementById('titleIn');if(ti)ti.value=c.title||'';
     document.getElementById('pinBtn').textContent=c.isPinned?'📍':'📌';
 }
 
@@ -269,6 +474,7 @@ function delEng(){
 /* ===== 全局设置 ===== */
 function renderGlobalSettings(){
     const uIn=document.getElementById('userNameIn');if(uIn)uIn.value=S.userName||'';
+    const dm=document.getElementById('defaultModeSel');if(dm)dm.value=S.defaultMode||'free';
     const ai=document.getElementById('archiveIntervalSel');if(ai)ai.value=String(S.archiveInterval!==undefined?S.archiveInterval:10);
     renderArchiveInfo();
 }
@@ -277,7 +483,7 @@ function renderArchiveInfo(){
     if(!Archive.isSupported()){el.innerHTML='<span style="color:var(--text2)">⚠️ 当前浏览器不支持自动存档（需 Chrome / Edge）</span>';return;}
     if(Archive.isEnabled()){
         const authTxt=Archive.isAuthorized()?'🟢 已授权':'🔴 待授权（刷新后点授权弹窗）';
-        el.innerHTML='✅ 已开启自动存档（'+authTxt+'）<br>目录：<strong>'+esc(Archive.getDirName())+'</strong><br><span style="font-size:11px;color:var(--text2)">每 '+(S.archiveInterval||10)+' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话</span>';
+        el.innerHTML='✅ 已开启自动存档（'+authTxt+'）<br>目录：<strong>'+esc(Archive.getDirName())+'</strong><br><span style="font-size:11px;color:var(--text2)">每 '+(S.archiveInterval||10)+' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话（删除对话不会删本地文件）</span>';
     }else el.innerHTML='<span style="color:var(--text2)">未设置存档目录</span>';
 }
 function updArchiveInterval(v){S.archiveInterval=parseInt(v,10)||0;scheduleSave();if(typeof Archive!=='undefined')Archive.setInterval(S.archiveInterval);renderArchiveInfo();toast('存档间隔：'+(S.archiveInterval?S.archiveInterval+' 分钟':'关闭定时'));}
@@ -296,7 +502,7 @@ async function renderStorageInfo(){
     catch(e){el.textContent='存储信息获取失败';}
 }
 
-/* ===== 核心发送（含泄露检测乱码 + 报警完善） ===== */
+/* ===== 核心发送（含泄露检测乱码 + 报警 + 模式锁定） ===== */
 async function coreSend(opts){
     opts=opts||{};
     let c=curChat();if(!c){newChat();c=curChat();}
@@ -313,9 +519,21 @@ async function coreSend(opts){
     c.messages.push(userMsg);
     const aiMsg={id:gId(),role:'assistant',content:'',_streaming:true,_time:nowTime()};
     c.messages.push(aiMsg);
-    if(c.title==='新对话'&&c.messages.length<=2)c.title=(opts.titleHint||visibleText||'新对话').slice(0,24);
+
+    /* ★ 发送首条消息后锁定模式 */
+    if(!c.modeLocked){
+        if(!c.mode)c.mode=(S.uiMode==='workflow')?'workflow':'free';
+        c.modeLocked=true;
+        c.title=buildTitleWithSuffix(c.title,c.mode);
+    }
+
+    // 标题自动命名（保留模式后缀）
+    const bareTitle=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();
+    if((bareTitle===''||bareTitle==='新对话')&&c.messages.length<=2){
+        c.title=buildTitleWithSuffix((opts.titleHint||visibleText||'新对话').slice(0,24),chatMode(c));
+    }
     c.updatedAt=Date.now();
-    renderMs();renderSB();
+    renderMs();renderSB();renderMode();
     const sendMsgs=[];
     if(c.systemPrompt&&c.systemPrompt.trim())sendMsgs.push({role:'system',content:c.systemPrompt});
     const lastUserIdx=c.messages.length-2;
@@ -366,7 +584,11 @@ async function send(){
     if(_streamCtrl){_streamCtrl.abort();return;}
     const inp=document.getElementById('uIn');const text=(inp.value||'').trim();
     if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}
-    if(text&&guardSensitive(text,'自由对话'))return;
+    const c=curChat();
+    /* ★ 仅工作流模式做敏感词检测；自由模式完全不受限 */
+    if(c&&chatMode(c)==='workflow'){
+        if(text&&guardSensitive(text,'工作流·自由输入'))return;
+    }
     const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';
     const attsForUser=_pendingAtts.slice();
     inp.value='';aRsz(inp);_pendingAtts=[];renderAttList();
@@ -399,7 +621,11 @@ async function _importShareFile(file){
     for(let attempt=0;attempt<3;attempt++){
         try{
             const result=await Snapshot.importSharedChat(file,password);
-            const chat=result.chat;S.chats[chat.id]=chat;S.chatOrder.unshift(chat.id);S.currentChatId=chat.id;
+            const chat=result.chat;
+            // 导入的对话标记为已锁定的自由模式（带后缀）
+            if(!chat.mode)chat.mode='free';chat.modeLocked=true;chat.folderId=chat.folderId||null;
+            chat.title=buildTitleWithSuffix(chat.title,chat.mode);
+            S.chats[chat.id]=chat;S.chatOrder.unshift(chat.id);S.currentChatId=chat.id;
             await saveNow();renderAll();
             toast('✅ 已导入分享对话'+(result.sharedBy?'（来自: '+result.sharedBy+'）':'')+'，可继续聊天！');return;
         }catch(e){
@@ -488,7 +714,11 @@ async function iSnap(inputEl){
         let finalState;
         if(mode){const {state:ps,protectedCount}=Snapshot.protectLocalKeys(imp,S);finalState=ps;if(protectedCount>0)toast('🔑 已保护 '+protectedCount+' 个 Key');}
         else{const {state:ps,protectedCount}=Snapshot.protectLocalKeys(imp,S);finalState=Snapshot.mergeStates(S,ps);if(protectedCount>0)toast('🔑 已保护 '+protectedCount+' 个 Key');}
-        S=finalState;if(!S.profiles[S.currentEngId])S.currentEngId=Object.keys(S.profiles)[0]||'zenmux';
+        S=finalState;
+        if(!Array.isArray(S.folders))S.folders=[];
+        if(!S.folderCollapsed||typeof S.folderCollapsed!=='object')S.folderCollapsed={};
+        if(!S.defaultMode)S.defaultMode='free';
+        if(!S.profiles[S.currentEngId])S.currentEngId=Object.keys(S.profiles)[0]||'zenmux';
         await saveNow();await Snapshot.snapNow(S);renderAll();
         toast('✅ 导入成功（'+source+'）：'+Object.keys(S.chats||{}).length+' 个会话');closeM('snap');
     }catch(e){console.error('[Import]',e);toast('导入失败：'+e.message,'er');}
@@ -544,6 +774,8 @@ async function checkURLImport(){
         const raw=await resp.json();let password='';
         if(raw&&raw.__feifan_enc__&&raw.hasPassword){const pwd=prompt('该分享已加密，请输入访问口令：','');password=pwd?pwd.trim():'';}
         const result=await Snapshot.normalizeSharedObject(raw,password);const chat=result.chat;
+        if(!chat.mode)chat.mode='free';chat.modeLocked=true;chat.folderId=chat.folderId||null;
+        chat.title=buildTitleWithSuffix(chat.title,chat.mode);
         S.chats[chat.id]=chat;S.chatOrder.unshift(chat.id);S.currentChatId=chat.id;await saveNow();renderAll();
         toast('✅ 已导入分享对话'+(result.sharedBy?'（来自: '+result.sharedBy+'）':'')+'，可继续聊天！');
         window.history.replaceState({},'',window.location.pathname);
