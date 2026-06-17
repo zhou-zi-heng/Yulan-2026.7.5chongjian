@@ -28,12 +28,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
-    <link rel="stylesheet" href="css/main.css?v=2.5.1">
-    <link rel="stylesheet" href="css/theme.css?v=2.5.1">
+    <link rel="stylesheet" href="css/main.css?v=2.6.0">
+    <link rel="stylesheet" href="css/theme.css?v=2.6.0">
     <style>
         .mode-switch{display:flex;gap:4px;margin-right:8px}
         .mode-switch button{padding:5px 12px;font-size:13px;border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:8px;cursor:pointer;white-space:nowrap}
         .mode-switch button.act{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border-color:transparent;font-weight:600}
+        .mode-switch button.locked{opacity:.55;cursor:not-allowed}
         /* 右侧工作流栏 */
         .wf-side{width:300px;flex-shrink:0;display:none;flex-direction:column;border-left:1px solid var(--border);background:var(--bg2,rgba(102,126,234,.04));height:100%;overflow:hidden}
         .wf-side.show{display:flex}
@@ -57,9 +58,13 @@
         <div class="sb-hdr"><h1>预览版🚀 飞凡AI对话</h1><button class="btn btn-s" onclick="openM('set')">⚙️</button></div>
         <div class="sb-body">
             <div class="badge" id="badge"></div>
-            <button class="btn btn-p btn-b" onclick="newChat()">➕ 新建对话</button>
+            <div style="display:flex;gap:6px;margin-bottom:5px">
+                <button class="btn btn-p btn-s" style="flex:1" onclick="newChat()">➕ 新建对话</button>
+                <button class="btn btn-s" onclick="addFolder()" title="新建文件夹">📁+</button>
+            </div>
             <input type="text" class="search" id="schIn" placeholder="🔍 搜索..." oninput="renderSB()">
             <div class="sl" id="pinLbl" style="display:none">📌 置顶</div><ul class="cl" id="pinList"></ul>
+            <div id="folderArea"></div>
             <div class="sl">💬 对话</div><ul class="cl" id="chatList"></ul>
             <div class="sl" id="arcLbl" style="display:none">📦 归档</div><ul class="cl" id="arcList"></ul>
         </div>
@@ -130,10 +135,11 @@
     <div style="padding:12px;background:var(--bg2,rgba(102,126,234,.06));border-radius:10px;margin-bottom:16px">
         <h4 style="font-size:13px;margin-bottom:10px">👤 全局设置（一次性）</h4>
         <div class="fg" style="margin-bottom:10px"><label>我的用户名（存档命名 / 分享署名）</label><input type="text" id="userNameIn" placeholder="如：张三" onchange="updUserName(this.value)"></div>
+        <div class="fg" style="margin-bottom:10px"><label>🆕 新建对话默认模式</label><select id="defaultModeSel" onchange="updDefaultMode(this.value)"><option value="free">💬 自由对话</option><option value="workflow">🔧 工作流</option></select><span style="font-size:11px;color:var(--text2)">新建对话默认采用此模式；发送第一条消息后永久锁定</span></div>
         <div class="fg" style="margin-bottom:10px"><label>📁 局域网自动存档目录</label><div id="archiveInfo" style="font-size:12px;line-height:1.7;margin-bottom:8px"></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-s btn-p" onclick="chooseArchiveDir()">📂 选择/更换存档目录</button><button class="btn btn-s" onclick="archiveNowBtn()">💾 立即存档一次</button><button class="btn btn-s btn-d" onclick="clearArchiveDir()">✖ 关闭存档</button></div></div>
         <div class="fg" style="margin-bottom:6px"><label>⏱️ 自动存档间隔</label><select id="archiveIntervalSel" onchange="updArchiveInterval(this.value)"><option value="0">关闭定时（仅回复后存）</option><option value="5">5 分钟</option><option value="10" selected>10 分钟（默认）</option><option value="15">15 分钟</option><option value="60">1 小时</option></select></div>
-        <div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6">💡 选定共享盘后自动写入 <code>标题__用户名__编号.html / .json</code>（覆盖，永远最新）。⚠️ 仅 Chrome/Edge；每次重开页面首次保存需点"允许"。</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6">💡 选定共享盘后自动写入 <code>标题__用户名__编号.html / .json</code>（覆盖，永远最新）。删除对话不会删除已存档的本地文件。⚠️ 仅 Chrome/Edge；每次重开页面首次保存需点"允许"。</div>
     </div>
     <div class="tabs" id="engTabs"></div><button class="btn btn-s" onclick="addEng()" style="margin-bottom:10px">➕ 新增引擎</button><div id="engForm"></div>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"><h4 style="font-size:13px;margin-bottom:8px">💾 本地存储</h4><div id="storageInfo" style="font-size:12px;color:var(--text2);line-height:1.8"></div></div>
@@ -169,20 +175,20 @@
 <div class="lightbox" id="lightbox" onclick="this.classList.remove('show')"><img id="lbImg" src=""></div>
 <div class="tc" id="tc"></div>
 
-<script src="js/utils.js?v=2.5.1"></script>
-<script src="js/storage.js?v=2.5.1"></script>
-<script src="js/api.js?v=2.5.1"></script>
-<script src="js/ui.js?v=2.5.1"></script>
-<script src="js/parsers/text.js?v=2.5.1"></script>
-<script src="js/parsers/csv.js?v=2.5.1"></script>
-<script src="js/parsers/office.js?v=2.5.1"></script>
-<script src="js/parsers/pdf.js?v=2.5.1"></script>
-<script src="js/parser.js?v=2.5.1"></script>
-<script src="js/upload.js?v=2.5.1"></script>
-<script src="js/snapshot.js?v=2.5.1"></script>
-<script src="js/archive.js?v=2.5.1"></script>
-<script src="js/workflow.js?v=2.5.1"></script>
-<script src="js/app.js?v=2.5.1"></script>
+<script src="js/utils.js?v=2.6.0"></script>
+<script src="js/storage.js?v=2.6.0"></script>
+<script src="js/api.js?v=2.6.0"></script>
+<script src="js/ui.js?v=2.6.0"></script>
+<script src="js/parsers/text.js?v=2.6.0"></script>
+<script src="js/parsers/csv.js?v=2.6.0"></script>
+<script src="js/parsers/office.js?v=2.6.0"></script>
+<script src="js/parsers/pdf.js?v=2.6.0"></script>
+<script src="js/parser.js?v=2.6.0"></script>
+<script src="js/upload.js?v=2.6.0"></script>
+<script src="js/snapshot.js?v=2.6.0"></script>
+<script src="js/archive.js?v=2.6.0"></script>
+<script src="js/workflow.js?v=2.6.0"></script>
+<script src="js/app.js?v=2.6.0"></script>
 
 </body>
 </html>
