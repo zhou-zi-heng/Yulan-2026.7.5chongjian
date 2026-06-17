@@ -94,6 +94,20 @@ const API = (function () {
         } catch (e) {}
         return '';
     }
+    /* ---------- 参数报错中文化 ---------- */
+    const PARAM_KEYS = ['temperature', 'top_p', 'max_tokens', 'frequency_penalty', 'presence_penalty'];
+    function humanizeApiError(msg) {
+        if (!msg) return msg;
+        const low = msg.toLowerCase();
+        const unsupported = /unsupported|not support|does not support|doesn't support|isn't supported|is not supported|unknown|invalid|unexpected|not allowed|不支持|无法识别/.test(low);
+        if (!unsupported) return msg;
+        for (const key of PARAM_KEYS) {
+            if (low.includes(key.toLowerCase())) {
+                return '此模型不适用 ' + key + ' 参数，请取消 ' + key + ' 参数的设置';
+            }
+        }
+        return msg;
+    }
 
     /* ---------- 获取模型列表 ---------- */
     async function fetchModels(profile) {
@@ -191,13 +205,16 @@ const API = (function () {
 
                     if (!resp.ok) {
                         const errText = await resp.text();
-                        const msg = 'HTTP ' + resp.status + ': ' + errText.slice(0, 300);
+                        let msg = 'HTTP ' + resp.status + ': ' + errText.slice(0, 300);
+                        const human = humanizeApiError(errText);
+                        if (human !== errText) msg = human;  // 命中参数错误 → 用中文提示
                         if ((resp.status >= 500 || resp.status === 429) && attempt < MAX_RETRY) {
                             lastErr = new Error(msg);
                             continue;
                         }
                         throw new Error(msg);
                     }
+
 
                     if (!resp.body) throw new Error('响应无 body 流');
 
