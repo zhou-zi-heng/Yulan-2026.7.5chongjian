@@ -726,6 +726,27 @@ async function iSnap(inputEl){
     }catch(e){console.error('[Import]',e);toast('导入失败：'+e.message,'er');}
     inputEl.value='';
 }
+async function rollbackImport(){
+    let bak=null;
+    try{bak=await DB.loadRollbackBackup();}catch(e){}
+    if(!bak||!bak.state){toast('暂无可恢复的备份（仅在导入快照后才有）','er');return;}
+    const t=bak.ts?new Date(bak.ts).toLocaleString():'未知时间';
+    if(!confirm('⏪ 恢复到上次导入前的数据？\n\n备份时间：'+t+'\n\n⚠️ 当前数据将被该备份覆盖，且此备份会被清除（只能回滚一次）。'))return;
+    try{
+        S=bak.state;
+        if(!S.profiles||!Object.keys(S.profiles).length)S.profiles=JSON.parse(JSON.stringify(API.DEFAULT_PROFILES));
+        if(!Array.isArray(S.folders))S.folders=[];
+        if(!S.folderCollapsed||typeof S.folderCollapsed!=='object')S.folderCollapsed={};
+        if(!S.defaultMode)S.defaultMode='free';
+        if(!S.profiles[S.currentEngId])S.currentEngId=Object.keys(S.profiles)[0]||'zenmux';
+        if(!S.currentChatId||!S.chats[S.currentChatId]){if(S.chatOrder&&S.chatOrder.length&&S.chats[S.chatOrder[0]])S.currentChatId=S.chatOrder[0];else S.currentChatId=null;}
+        await saveNow();
+        await DB.clearRollbackBackup();
+        renderAll();
+        toast('✅ 已恢复到导入前的数据');
+        closeM('snap');
+    }catch(e){console.error('[Rollback]',e);toast('恢复失败：'+e.message,'er');}
+}
 
 function updExp(){_exportMode=document.getElementById('expFmt').value;updExpPreview();}
 function buildExportContent(chatArg,modeArg){
