@@ -1,6 +1,7 @@
-/* ===== 飞凡ai对话 IndexedDB 存储层 (v2.3.4) ===== */
+/* ===== 飞凡ai对话 IndexedDB 存储层 (v2.6.1) ===== */
 /* 提供与 localStorage 类似的简单 API，背后用 IndexedDB */
 /* v2.3.4: 新增存档目录句柄持久化（saveDirHandle / loadDirHandle / clearDirHandle） */
+/* v2.6.1: 新增导入回滚备份（saveRollbackBackup / loadRollbackBackup / clearRollbackBackup） */
 
 const DB = (function () {
     const DB_NAME = 'ZenMuxDB';
@@ -8,6 +9,7 @@ const DB = (function () {
     const OLD_LS_KEY = 'zenmux_v3'; // 旧 localStorage 键
     const SETTINGS_KEY_STATE = 'app_state'; // 存主状态对象
     const SETTINGS_KEY_DIRHANDLE = 'archive_dir_handle'; // ★ 存档目录句柄
+    const SETTINGS_KEY_ROLLBACK = 'rollback_backup'; // ★ v2.6.1 导入前回滚备份
 
     let _db = null;
 
@@ -176,6 +178,40 @@ const DB = (function () {
         }
     }
 
+    /* ==========================================================
+       ===== ★ v2.6.1 新增：导入回滚备份 =======================
+       ========================================================== */
+    /* 每次"导入快照"前，先把当前完整状态存一份到这里（覆盖式，仅保留最近一次）。
+       导入搞错了可一键回滚；回滚成功后会清除此备份（只能回滚一次）。 */
+    async function saveRollbackBackup(state) {
+        try {
+            // 深拷贝，避免存进去后又被引用修改
+            const snapshot = JSON.parse(JSON.stringify(state));
+            await setSetting(SETTINGS_KEY_ROLLBACK, { ts: Date.now(), state: snapshot });
+            return true;
+        } catch (e) {
+            console.warn('[saveRollbackBackup]', e);
+            return false;
+        }
+    }
+    async function loadRollbackBackup() {
+        try {
+            return await getSetting(SETTINGS_KEY_ROLLBACK, null);
+        } catch (e) {
+            console.error('[loadRollbackBackup]', e);
+            return null;
+        }
+    }
+    async function clearRollbackBackup() {
+        try {
+            await delSetting(SETTINGS_KEY_ROLLBACK);
+            return true;
+        } catch (e) {
+            console.error('[clearRollbackBackup]', e);
+            return false;
+        }
+    }
+
     /* ---------- 清空整个数据库（危险操作） ---------- */
     async function clearAll() {
         const stores = ['conversations', 'messages', 'attachments', 'settings', 'snapshots'];
@@ -272,6 +308,10 @@ const DB = (function () {
         saveDirHandle: saveDirHandle,
         loadDirHandle: loadDirHandle,
         clearDirHandle: clearDirHandle,
+        // ★ v2.6.1 新增：导入回滚备份
+        saveRollbackBackup: saveRollbackBackup,
+        loadRollbackBackup: loadRollbackBackup,
+        clearRollbackBackup: clearRollbackBackup,
         // 工具
         clearAll: clearAll,
         migrateFromLocalStorage: migrateFromLocalStorage,
