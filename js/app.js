@@ -708,6 +708,8 @@ function renderKBList(){
 function eSnap(){const includeKey=confirm('导出快照\n\n✅ 确定 = 含 API Key\n❌ 取消 = 不含 API Key');Snapshot.exportToFile(S,{includeKey:includeKey});}
 async function iSnap(inputEl){
     if(!inputEl.files||!inputEl.files.length)return;const file=inputEl.files[0];
+    // ★ 导入前自动备份当前数据（用于回滚）
+    try{await DB.saveRollbackBackup(S);}catch(e){console.warn('备份失败',e);}
     const mode=confirm('✅ 确定 = 替换模式\n❌ 取消 = 合并模式\n\n两种都会保护本地 API Key');
     try{
         const {state:imp,source}=await Snapshot.importFromFile(file);
