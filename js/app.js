@@ -212,15 +212,13 @@ async function wfSend(stepId){
     const els=document.querySelectorAll('[id^="wfin_'+stepId+'_"]');
     els.forEach(el=>{const seg=parseInt(el.getAttribute('data-seg'),10);inputsMap[seg]=el.value;joinedInput+=' '+el.value;});
     const presetName=Workflow.getPresetName(_wfPresetId);
-    // 工作流模式 → 敏感词检测（含附件文本一起查）
-    let attCheckText=joinedInput;
-    _pendingAtts.forEach(a=>{if(a.text)attCheckText+=' '+a.text;});
-    if(guardSensitive(attCheckText.trim(),'工作流·预设《'+presetName+'》'))return;
+    // ★ 敏感词只查"用户在步骤框里输入的内容"，不查上传的附件正文（附件是创作素材，不审查）
+    if(guardSensitive(joinedInput.trim(),'工作流·预设《'+presetName+'》'))return;
     let built;
     try{built=await Workflow.buildSend(_wfPresetId,stepId,inputsMap);}
     catch(e){toast('指令解密失败：'+e.message,'er');return;}
     _wfAlertCtx={user:S.userName||'未署名',preset:presetName,step:built.stepName,input:joinedInput.trim()};
-    // ★ 带上当前待发附件（与自由模式同一个附件池）；顺序：文件 → 隐藏指令+输入
+    // 带上当前待发附件（与自由模式同一个附件池）；顺序：文件 → 隐藏指令+输入
     const attsForSend=_pendingAtts.slice();
     await coreSend({
         visibleText:built.displayText,
@@ -229,7 +227,7 @@ async function wfSend(stepId){
         titleHint:built.stepName,
         _wfLeakCheck:true
     });
-    // 清空步骤输入框 + 清空附件区（和自由模式发完一致）
+    // 清空步骤输入框 + 清空附件区
     els.forEach(el=>el.value='');
     _pendingAtts=[];renderAttList();
 }
