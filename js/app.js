@@ -16,7 +16,7 @@ let _dragChatId=null;
 const MODE_SUFFIX={free:'-自由',workflow:'-工作流'};
 function modeLabel(m){return m==='workflow'?'工作流':'自由';}
 
-/* 标题强制带后缀（任何标题都带） */
+/* 标题强制带后缀asdas（任何标题都带） */
 function buildTitleWithSuffix(rawTitle,mode){
     let t=(rawTitle||'').trim()||'新对话';
     // 去掉已有的两种后缀，避免重复叠加
