@@ -47,6 +47,12 @@
         .wf-cmd-title{font-weight:600;font-size:13px;margin-bottom:8px}
         .wf-cmd-input{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;resize:vertical;margin-bottom:8px}
         .wf-cmd-send{width:100%}
+        .wf-blank{display:flex;flex-wrap:wrap;align-items:center;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px;line-height:2}
+        .wf-blank-txt{white-space:pre-wrap;color:var(--text)}
+        .wf-blank-in{display:inline-block;min-width:36px;border:none;border-bottom:2px solid var(--pri,#667eea);padding:0 4px;margin:0 2px;outline:none;color:var(--pri,#667eea);font-weight:600;background:rgba(102,126,234,.06);border-radius:4px 4px 0 0;line-height:1.6}
+        .wf-blank-in:empty::before{content:attr(data-ph);color:var(--text2);font-weight:400;opacity:.6}
+        .wf-blank-in:focus{background:rgba(102,126,234,.14)}
+
         @media (max-width:768px){.wf-side{position:fixed;top:0;right:0;width:85%;max-width:340px;z-index:200;box-shadow:-4px 0 20px rgba(0,0,0,.2)}}
     </style>
 </head>
