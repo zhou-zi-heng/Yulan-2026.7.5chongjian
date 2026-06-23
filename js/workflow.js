@@ -1,5 +1,6 @@
-/* ===== 飞凡AI - 工作流引擎 (v2.5.1) ===== */
+/* ===== 飞凡AI - 工作流引擎 (v2.6.2) ===== */
 /* 多片段拼接 + 防泄露保密壳 + 敏感词检测 + 输出相似度检测 + 钉钉无感报警 */
+/* v2.6.2: input 支持默认值(defaultValue) + 新增填空题片段(type=blank, template含{}空位) */
 
 const Workflow = (function () {
 
@@ -49,7 +50,36 @@ const Workflow = (function () {
     function getPreset(pid){return isLoaded()?(_data.presets.find(p=>p.id===pid)||null):null;}
     function getSteps(pid){const p=getPreset(pid);if(!p||!Array.isArray(p.steps))return [];return p.steps.slice().sort((a,b)=>(a.order||0)-(b.order||0));}
     function getStep(pid,sid){return getSteps(pid).find(s=>s.id===sid)||null;}
-    function getInputs(pid,sid){const s=getStep(pid,sid);if(!s||!Array.isArray(s.segments))return [];const arr=[];s.segments.forEach((seg,i)=>{if(seg.type==='input')arr.push({segIndex:i,placeholder:seg.placeholder||'请输入...'});});return arr;}
+
+    /* 把填空题模板按 {} 切成 片段：{text:'文字'} 或 {blank:true} */
+    function parseBlankTemplate(tpl){
+        const parts=[];const str=String(tpl||'');
+        let buf='',i=0;
+        while(i<str.length){
+            if(str[i]==='{'&&str[i+1]==='}'){
+                if(buf){parts.push({text:buf});buf='';}
+                parts.push({blank:true});
+                i+=2;
+            }else{buf+=str[i];i++;}
+        }
+        if(buf)parts.push({text:buf});
+        return parts;
+    }
+    function countBlanks(tpl){let c=0;const s=String(tpl||'');for(let i=0;i<s.length-1;i++){if(s[i]==='{'&&s[i+1]==='}'){c++;i++;}}return c;}
+
+    /* ★ 升级：getInputs 返回 input(含默认值) 和 blank(填空题) 两类 */
+    function getInputs(pid,sid){
+        const s=getStep(pid,sid);if(!s||!Array.isArray(s.segments))return [];
+        const arr=[];
+        s.segments.forEach((seg,i)=>{
+            if(seg.type==='input'){
+                arr.push({kind:'input',segIndex:i,placeholder:seg.placeholder||'请输入...',defaultValue:seg.defaultValue||''});
+            }else if(seg.type==='blank'){
+                arr.push({kind:'blank',segIndex:i,template:seg.template||'',parts:parseBlankTemplate(seg.template||''),blankCount:countBlanks(seg.template||'')});
+            }
+        });
+        return arr;
+    }
     function getPresetName(pid){const p=getPreset(pid);return p?p.name:'';}
 
     function getSecurity(){return (isLoaded()&&_data.security)?_data.security:{sensitiveWords:[],alertWebhook:'',alertKeyword:'飞凡警报',simThreshold:70,guard:true};}
@@ -64,25 +94,46 @@ const Workflow = (function () {
         return null;
     }
 
+    /* ★ 升级：buildSend
+       inputsMap[i] 对 input = 字符串
+       inputsMap[i] 对 blank = 数组（每个空的填写值，按顺序）
+       返回里多了 missing（未填的填空题描述），供 app 校验 */
     async function buildSend(pid,sid,inputsMap){
         const s=getStep(pid,sid);
         if(!s)throw new Error('步骤不存在');
         const sec=getSecurity();
-        let hiddenConcat='';let body='';const userParts=[];
+        let hiddenConcat='';let body='';const userParts=[];const missing=[];
         for(let i=0;i<s.segments.length;i++){
             const seg=s.segments[i];
             if(seg.type==='prompt'){
                 const txt=await _decrypt(seg.hidden);
                 hiddenConcat+=txt;body+=txt;
-            }else{
-                const v=(inputsMap&&inputsMap[i]!==undefined)?String(inputsMap[i]):'';
+            }else if(seg.type==='blank'){
+                // 填空题：把 template 的 {} 依次替换成用户填写值（标记消失，纯文本）
+                const tpl=seg.template||'';
+                const vals=(inputsMap&&Array.isArray(inputsMap[i]))?inputsMap[i]:[];
+                const total=countBlanks(tpl);
+                let composed='';let bi=0;const str=String(tpl);
+                for(let k=0;k<str.length;k++){
+                    if(str[k]==='{'&&str[k+1]==='}'){
+                        const v=(vals[bi]!==undefined?String(vals[bi]):'').trim();
+                        if(!v)missing.push({segIndex:i,blankIndex:bi,template:tpl});
+                        composed+=v;bi++;k++;
+                    }else composed+=str[k];
+                }
+                body+=composed;
+                if(composed.trim())userParts.push(composed.trim());
+            }else{ // input
+                let v=(inputsMap&&inputsMap[i]!==undefined)?String(inputsMap[i]):'';
+                // ★ 留空则用默认值
+                if(!v.trim()&&seg.defaultValue)v=String(seg.defaultValue);
                 body+=v;if(v.trim())userParts.push(v.trim());
             }
         }
         const sendText=(sec.guard!==false?GUARD_PREFIX:'')+body;
         _lastHiddenForStep=hiddenConcat;
         const displayText=s.name+(userParts.length?'：'+userParts.join(' '):'');
-        return {displayText,sendText,stepName:s.name,hiddenConcat};
+        return {displayText,sendText,stepName:s.name,hiddenConcat,missing};
     }
 
     /* 相似度（字符级3-gram重合率） */
@@ -95,10 +146,8 @@ const Workflow = (function () {
         return Math.round(hit/og.size*100);
     }
     function isLeak(output){if(!_lastHiddenForStep)return false;return similarity(output,_lastHiddenForStep)>=getSimThreshold();}
-    /* ★ 与最近一次隐藏指令的相似度% */
     function similarityToLast(output){return similarity(output,_lastHiddenForStep);}
 
-    /* 钉钉无感报警 */
     function sendAlert(text){
         const sec=getSecurity();
         if(!sec.alertWebhook)return;
@@ -115,7 +164,7 @@ const Workflow = (function () {
 
     return {
         load, isLoaded, getGroups, getPresets, getPreset, getSteps, getStep,
-        getInputs, getPresetName, buildSend,
+        getInputs, getPresetName, buildSend, parseBlankTemplate, countBlanks,
         checkSensitive, isLeak, similarity, similarityToLast, sendAlert, getSecurity,
     };
 })();
