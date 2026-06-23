@@ -196,12 +196,32 @@ function renderWfSteps(){
         const wrap=document.createElement('div');wrap.className='wf-cmd';
         let html='<div class="wf-cmd-title">'+(i+1)+'. '+esc(s.name)+'</div>';
         if(inputs.length){
-            inputs.forEach(inp=>{html+='<textarea class="wf-cmd-input" data-seg="'+inp.segIndex+'" id="wfin_'+esc(s.id)+'_'+inp.segIndex+'" rows="3" placeholder="'+esc(inp.placeholder)+'"></textarea>';});
+            inputs.forEach(inp=>{
+                if(inp.kind==='blank'){
+                    // 填空题：文字 + 自适应 inline 小框 + 文字
+                    let row='<div class="wf-blank" data-seg="'+inp.segIndex+'">';
+                    let bIdx=0;
+                    inp.parts.forEach(part=>{
+                        if(part.blank){
+                            row+='<span class="wf-blank-in" contenteditable="true" data-bi="'+bIdx+'" data-ph="填写"></span>';
+                            bIdx++;
+                        }else{
+                            row+='<span class="wf-blank-txt">'+esc(part.text)+'</span>';
+                        }
+                    });
+                    row+='</div>';
+                    html+=row;
+                }else{
+                    // 普通输入框：预填默认值（方案A）
+                    html+='<textarea class="wf-cmd-input" data-seg="'+inp.segIndex+'" data-kind="input" id="wfin_'+esc(s.id)+'_'+inp.segIndex+'" rows="3" placeholder="'+esc(inp.placeholder)+'">'+esc(inp.defaultValue||'')+'</textarea>';
+                }
+            });
         }else{html+='<div style="font-size:12px;color:var(--text2);margin-bottom:6px">（此步骤无需输入，直接发送）</div>';}
         html+='<button class="btn btn-p btn-s wf-cmd-send" onclick="wfSend(\''+esc(s.id)+'\')">▶ 用此步骤发送</button>';
         wrap.innerHTML=html;box.appendChild(wrap);
     });
 }
+
 
 async function wfSend(stepId){
     const c=curChat();
@@ -209,27 +229,44 @@ async function wfSend(stepId){
     if(!_wfPresetId){toast('请先选择预设','er');return;}
     if(_streamCtrl){toast('请等待当前回复完成','er');return;}
     const inputsMap={};let joinedInput='';
-    const els=document.querySelectorAll('[id^="wfin_'+stepId+'_"]');
-    els.forEach(el=>{const seg=parseInt(el.getAttribute('data-seg'),10);inputsMap[seg]=el.value;joinedInput+=' '+el.value;});
+    // 收集本步骤所有片段的输入
+    const stepEl=event&&event.target?event.target.closest('.wf-cmd'):null;
+    const scope=stepEl||document;
+    // 普通输入框
+    scope.querySelectorAll('textarea[data-kind="input"][id^="wfin_'+stepId+'_"]').forEach(el=>{
+        const seg=parseInt(el.getAttribute('data-seg'),10);
+        inputsMap[seg]=el.value;
+        if(el.value&&el.value.trim())joinedInput+=' '+el.value.trim();
+    });
+    // 填空题
+    let blankMissing=false;
+    scope.querySelectorAll('.wf-blank').forEach(bl=>{
+        const seg=parseInt(bl.getAttribute('data-seg'),10);
+        const vals=[];
+        bl.querySelectorAll('.wf-blank-in').forEach(inEl=>{
+            const v=(inEl.textContent||'').trim();
+            vals.push(v);
+            if(!v)blankMissing=true;
+            if(v)joinedInput+=' '+v;
+        });
+        inputsMap[seg]=vals;
+    });
+    if(blankMissing){toast('请填写所有空位后再发送','er');return;}
     const presetName=Workflow.getPresetName(_wfPresetId);
-    // ★ 敏感词只查"用户在步骤框里输入的内容"，不查上传的附件正文（附件是创作素材，不审查）
+    // 工作流模式 → 敏感词检测
     if(guardSensitive(joinedInput.trim(),'工作流·预设《'+presetName+'》'))return;
     let built;
     try{built=await Workflow.buildSend(_wfPresetId,stepId,inputsMap);}
     catch(e){toast('指令解密失败：'+e.message,'er');return;}
+    if(built.missing&&built.missing.length){toast('请填写所有空位后再发送','er');return;}
     _wfAlertCtx={user:S.userName||'未署名',preset:presetName,step:built.stepName,input:joinedInput.trim()};
-    // 带上当前待发附件（与自由模式同一个附件池）；顺序：文件 → 隐藏指令+输入
-    const attsForSend=_pendingAtts.slice();
-    await coreSend({
-        visibleText:built.displayText,
-        actualText:built.sendText,
-        atts:attsForSend,
-        titleHint:built.stepName,
-        _wfLeakCheck:true
+    await coreSend({visibleText:built.displayText,actualText:built.sendText,titleHint:built.stepName,_wfLeakCheck:true});
+    // 清空本步骤输入：普通框恢复默认值，填空题清空
+    const inputs=Workflow.getInputs(_wfPresetId,stepId);
+    inputs.forEach(inp=>{
+        if(inp.kind==='input'){const el=document.getElementById('wfin_'+stepId+'_'+inp.segIndex);if(el)el.value=inp.defaultValue||'';}
     });
-    // 清空步骤输入框 + 清空附件区
-    els.forEach(el=>el.value='');
-    _pendingAtts=[];renderAttList();
+    scope.querySelectorAll('.wf-blank-in').forEach(inEl=>{inEl.textContent='';});
 }
 
 
