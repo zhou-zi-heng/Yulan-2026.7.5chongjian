@@ -95,6 +95,7 @@
             </div>
             <div class="hdr-acts">
                 <button onclick="openM('cs')" title="会话设置">🎛️</button>
+                <button onclick="toggleChunk()" id="chunkBtn" title="物理打标（关）">📐</button>                
                 <button onclick="openM('exp')" title="导出">📥</button>
                 <button onclick="shareC()" title="加密分享">🔗</button>
                 <button onclick="pinC()" title="置顶" id="pinBtn">📌</button>
@@ -121,7 +122,6 @@
                     <div class="att-pan" id="attPan">
                         <div class="fg" style="margin-bottom:6px"><label>上传文件（多选/拖拽/粘贴）</label><input type="file" id="attIn" multiple onchange="onAtt(this)"></div>
                         <div class="pt"><input type="checkbox" id="attCont" onchange="updAttCont()"><label for="attCont">🔄 持续参考（本批全部）</label></div>
-                        <div class="pt"><input type="checkbox" id="attChunk" onchange="updAttChunk()"><label for="attChunk">📐 物理打标（全局 · 对话/工作流/知识库统一生效）</label></div>
                         <div id="attListBox" style="display:none"><div class="att-head"><span id="attCount"></span><button onclick="clrAtt()">🗑️ 清空全部</button></div><div class="att-list" id="attList"></div></div>
                     </div>
                 </div>
