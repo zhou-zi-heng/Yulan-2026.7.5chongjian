@@ -236,6 +236,12 @@ function renderWfAtts(){
         const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
+        // ★ 打标开启且为文本类 → 预览按钮
+        if(_attChunk&&a.type!=='image'&&a.text){
+            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
+            pv.onclick=()=>previewChunkObj(a);
+            item.appendChild(pv);
+        }
         const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';
         rm.onclick=()=>{_pendingAtts.splice(idx,1);renderWfAtts();renderAttList();};
         item.appendChild(rm);box.appendChild(item);
@@ -724,14 +730,14 @@ function toggleChunk(){
 
 
 /* ===== 打标预览 ===== */
-function previewChunk(idx){
+function previewChunkObj(att){
     if(typeof Chunker==='undefined'){toast('打标引擎未加载','er');return;}
-    const att=_pendingAtts[idx];
-    if(!att){toast('附件不存在','er');return;}
+    if(!att||!att.text){toast('该附件无文本，无法预览','er');return;}
     const ta=document.getElementById('chunkPreviewTA');
     if(ta)ta.value=Chunker.previewOne(att);
     openM('chunk-preview');
 }
+
 
 function copyChunkPreview(){
     const ta=document.getElementById('chunkPreviewTA');
@@ -1057,7 +1063,7 @@ function renderAttList(){
         // ★ 打标开启且为文本类附件 → 加单独预览按钮
         if(_attChunk&&a.type!=='image'&&a.text){
             const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
-            pv.onclick=()=>previewChunk(idx);
+            pv.onclick=()=>previewChunkObj(a);
             item.appendChild(pv);
         }
         const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';rm.onclick=()=>{_pendingAtts.splice(idx,1);renderAttList();if(typeof renderWfAtts==='function')renderWfAtts();};item.appendChild(rm);
@@ -1085,10 +1091,17 @@ function renderKBList(){
         const icon=k.type==='image'?'🖼️':k.type==='table'?'📊':k.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+k.name;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=k.type==='image'?'图片':(cntW(k.text||'')+' 字');item.appendChild(sz);
+        // ★ 打标开启且为文本类 → 预览按钮（字段映射：name→fileName）
+        if(_attChunk&&k.type!=='image'&&k.text){
+            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
+            pv.onclick=()=>previewChunkObj({fileName:k.name,type:k.type,text:k.text});
+            item.appendChild(pv);
+        }
         const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';
         rm.onclick=async()=>{if(!confirm('从知识库移除 "'+k.name+'"？'))return;c.knowledgeBase.splice(idx,1);c.updatedAt=Date.now();await saveNow();renderKBList();};
         item.appendChild(rm);wrap.appendChild(item);
     });
+
 }
 
 /* ===== 快照 / 导入导出（含回滚备份 + 字段补齐） ===== */
