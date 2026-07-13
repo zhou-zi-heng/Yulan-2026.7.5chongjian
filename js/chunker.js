@@ -97,9 +97,10 @@ const Chunker = (function () {
             ' 字符切为 ' + blocks.length + ' 块，每块标注了字符区间与占全文百分比。\n' +
             '以下用 ▌块N (a%-b%｜第x-y字) 作为分隔。\n\n';
         blocks.forEach(b => {
-            out += '▌块' + b.no + ' (' + b.pctStart + '%-' + b.pctEnd +
-                '%｜第' + b.startChar + '-' + b.endChar + '字)\n' + b.text + '\n\n';
+            out += '▌块' + b.no + '｜全文' + b.pctStart + '%-' + b.pctEnd +
+                '%（第' + b.startChar + '-' + b.endChar + '字）\n' + b.text + '\n\n';
         });
+
         return out;
     }
 
