@@ -710,26 +710,29 @@ async function renderStorageInfo(){
 }
 
 /* ===== 物理打标全局开关 ===== */
-function updAttChunk(){
-    _attChunk=document.getElementById('attChunk').checked;
-    if(!_pendingAtts.length&&_attChunk){toast('📐 物理打标已开启，上传文件后自动打标');}
-    renderAttList();  // ★ 刷新列表，让"预览打标"按钮即时出现/消失
+function toggleChunk(){
+    _attChunk=!_attChunk;
+    const btn=document.getElementById('chunkBtn');
+    if(btn){
+        btn.style.color=_attChunk?'#667eea':'';
+        btn.style.background=_attChunk?'var(--pri-l)':'';
+        btn.title='物理打标（'+(_attChunk?'开':'关')+'）';
+    }
+    toast(_attChunk?'📐 物理打标已开启（对话/工作流/知识库统一生效）':'📐 物理打标已关闭');
+    renderAttList();
 }
 
 
 /* ===== 打标预览 ===== */
-function previewChunk(){
-    if(!_pendingAtts.length){toast('请先上传文件','er');return;}
+function previewChunk(idx){
     if(typeof Chunker==='undefined'){toast('打标引擎未加载','er');return;}
-    const previews=Chunker.previewOnly(_pendingAtts);
-    let full='';
-    previews.forEach(p=>{
-        full+='\n\n'+('='.repeat(60))+'\n'+p.text+'\n';
-    });
+    const att=_pendingAtts[idx];
+    if(!att){toast('附件不存在','er');return;}
     const ta=document.getElementById('chunkPreviewTA');
-    if(ta)ta.value=full.trim();
+    if(ta)ta.value=Chunker.previewOne(att);
     openM('chunk-preview');
 }
+
 function copyChunkPreview(){
     const ta=document.getElementById('chunkPreviewTA');
     if(!ta||!ta.value){toast('无内容','er');return;}
@@ -770,7 +773,7 @@ async function coreSend(opts){
                 let body=k.text;
                 if(_attChunk&&typeof Chunker!=='undefined'){
                     const r=Chunker.chunk(k.text,{});
-                    body=r.toc+r.marked;
+                    body=r.marked;
                 }
                 kbText+='\n\n=== 📚 知识库：'+k.name+' ===\n'+body+'\n=== 知识库结束 ===\n';
             }
@@ -1051,22 +1054,15 @@ function renderAttList(){
         const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
+        // ★ 打标开启且为文本类附件 → 加单独预览按钮
+        if(_attChunk&&a.type!=='image'&&a.text){
+            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
+            pv.onclick=()=>previewChunk(idx);
+            item.appendChild(pv);
+        }
         const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';rm.onclick=()=>{_pendingAtts.splice(idx,1);renderAttList();if(typeof renderWfAtts==='function')renderWfAtts();};item.appendChild(rm);
         list.appendChild(item);
     });
-    // ★ 打标预览按钮
-    const previewBtn=document.getElementById('attPreviewBtn');
-    if(_attChunk&&_pendingAtts.length){
-        if(!previewBtn){
-            const btnEl=document.createElement('button');
-            btnEl.id='attPreviewBtn';btnEl.className='btn btn-s';
-            btnEl.textContent='👁 预览打标';btnEl.onclick=previewChunk;
-            btnEl.style.cssText='margin-top:6px;width:100%';
-            list.parentNode.appendChild(btnEl);
-        }
-    }else{
-        if(previewBtn)previewBtn.remove();
-    }
 }
 function clrAtt(){_pendingAtts=[];renderAttList();}
 
