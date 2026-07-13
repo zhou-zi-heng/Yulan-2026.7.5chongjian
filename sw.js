@@ -21,6 +21,7 @@ const PRECACHE = [
     './js/parsers/csv.js?v=2.7.0',
     './js/parsers/office.js?v=2.7.0',
     './js/parsers/pdf.js?v=2.7.0',
+    './js/chunker.js?v=2.7.0',
     './manifest.json',
     './presets.json',
 ];
