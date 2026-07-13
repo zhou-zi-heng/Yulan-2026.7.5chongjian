@@ -1,11 +1,11 @@
-/* ===== 飞凡AI - 物理分块打标引擎 (v1.0) ===== */
-/* 把长文本按字数切块，智能断句，每块附精确坐标。
-   让 AI 用"块号+占比"定位，杜绝语感数数。 */
+/* ===== 飞凡AI - 物理分块打标引擎 (v1.1) ===== */
+/* 纯物理切块，严格按字数切，每块附精确坐标。
+   让 AI 用"块号+占比"定位，杜绝语感数数。零AI参与。 */
 
 const Chunker = (function () {
 
     const DEFAULT_SIZE = 300;       // ★ 默认每块字数（改这里调）
-    const EN_FACTOR = 1.6;         // ★ 英文折算系数
+    const EN_FACTOR = 1.6;         // ★ 英文折算系数（仅 weighted 模式生效）
 
     /* ---------- 字符工具 ---------- */
     function _chars(s) { return [...String(s || '')]; }
@@ -42,49 +42,23 @@ const Chunker = (function () {
         return (en > cjk * 0.3) ? 'weighted' : 'char';
     }
 
-    /* ---------- 找断句点 ---------- */
-    function _findBreak(chars, start, idealEnd) {
-        if (idealEnd >= chars.length) return chars.length;
-        const sentenceEnds = new Set(['。', '！', '？', '…', '.', '!', '?', '"', '”', '’', '\n', '\r']);
-        const secondary = new Set(['，', '、', '；', '：', ',', ';', ':', ' ', '\t', ')', '）', ']', '】']);
-        // 在 idealEnd 前后 20% 范围内找最佳断点
-        const range = Math.floor(DEFAULT_SIZE * 0.2);
-        const searchStart = Math.max(start, idealEnd - range);
-        const searchEnd = Math.min(chars.length, idealEnd + range);
-        // 优先找句末
-        for (let i = searchEnd - 1; i >= searchStart; i--) {
-            if (sentenceEnds.has(chars[i])) return i + 1;
-        }
-        // 找次级标点
-        for (let i = searchEnd - 1; i >= searchStart; i--) {
-            if (secondary.has(chars[i])) return i + 1;
-        }
-        // 找换行
-        for (let i = searchEnd - 1; i >= searchStart; i--) {
-            if (chars[i] === '\n' || chars[i] === '\r') return i + 1;
-        }
-        return idealEnd;
-    }
-
-    /* ========== 核心：分块 ========== */
+    /* ========== 核心：分块（严格按 size，不智能断句） ========== */
     function chunk(text, opts) {
         opts = opts || {};
         const size = opts.size || DEFAULT_SIZE;
-        const mode = opts.mode || 'auto';
+        const mode = opts.mode || 'auto';    // ★ 默认计数模式，可改 'char' / 'weighted'
         const chars = _chars(text);
         const total = chars.length;
         if (!total) return { total: 0, size: size, blocks: [], marked: '', toc: '' };
 
-        // 确定计数模式
         const actualMode = (mode === 'auto') ? _autoMode(text) : mode;
         const totalW = (actualMode === 'weighted') ? _weightedLen(text) : total;
 
         const blocks = [];
         let idx = 1, pos = 0;
         while (pos < total) {
-            const idealEnd = pos + size;
-            const breakPt = _findBreak(chars, pos, Math.min(idealEnd, total));
-            const end = (breakPt <= pos) ? Math.min(pos + size, total) : breakPt;
+            // ★ 严格按 size 切，不做智能断句
+            const end = Math.min(pos + size, total);
             const body = chars.slice(pos, end).join('');
             const blockChars = end - pos;
             const startCharNo = pos + 1;
@@ -125,9 +99,10 @@ const Chunker = (function () {
     /* ---------- 渲染标记文本 ---------- */
     function _render(blocks, total, mode) {
         const modeLabel = mode === 'weighted' ? '中英加权' : '纯字符';
+        const avg = blocks.length ? Math.round(total / blocks.length) : 0;   // ★ 真实平均
         let out = '【本文档已做物理分块打标｜总字符数：' + total + '｜计数模式：' + modeLabel +
-            '｜每块约 ' + (blocks[0] ? blocks[0].chars + '字符' : '') +
-            '】\n【分析时请直接引用"块号"和"占比"定位，严禁自行估算字数或比例】\n\n';
+            '｜共 ' + blocks.length + ' 块｜平均每块 ' + avg + ' 字符】\n' +
+            '【分析时请直接引用"块号"和"占比"定位，严禁自行估算字数或比例】\n\n';
         blocks.forEach(b => {
             out += '━━━【第' + b.no + '块｜第' + b.startChar + '-' + b.endChar + '字符｜' +
                 b.pctStart + '%-' + b.pctEnd + '%】━━━\n' + b.text + '\n\n';
@@ -160,7 +135,7 @@ const Chunker = (function () {
         });
     }
 
-    /* ---------- 仅生成预览（不隐藏指令，供预览窗用） ---------- */
+    /* ---------- 仅生成预览（供预览窗用） ---------- */
     function previewOnly(atts) {
         return atts.map(a => {
             if (!a.text || a.type === 'image') return { fileName: a.fileName, type: a.type, text: '[图片，不参与打标]' };
