@@ -712,9 +712,10 @@ async function renderStorageInfo(){
 /* ===== 物理打标全局开关 ===== */
 function updAttChunk(){
     _attChunk=document.getElementById('attChunk').checked;
-    const chk=document.getElementById('attChunk');
     if(!_pendingAtts.length&&_attChunk){toast('📐 物理打标已开启，上传文件后自动打标');}
+    renderAttList();  // ★ 刷新列表，让"预览打标"按钮即时出现/消失
 }
+
 
 /* ===== 打标预览 ===== */
 function previewChunk(){
@@ -769,7 +770,7 @@ async function coreSend(opts){
                 let body=k.text;
                 if(_attChunk&&typeof Chunker!=='undefined'){
                     const r=Chunker.chunk(k.text,{});
-                    body=Chunker.chunk(k.text,{}).toc+Chunker.chunk(k.text,{}).marked;
+                    body=r.toc+r.marked;
                 }
                 kbText+='\n\n=== 📚 知识库：'+k.name+' ===\n'+body+'\n=== 知识库结束 ===\n';
             }
@@ -1031,8 +1032,14 @@ async function handleUploadedFiles(files){
         if(okCount>0)toast('✅ 已解析 '+okCount+' 个文件'+(failCount?'（'+failCount+' 失败）':''));
     }
     renderAttList();
+    // ★ 自动展开附件面板，让用户看到刚拖入/上传的文件
+    if(_pendingAtts.length){
+        const pan=document.getElementById('attPan');
+        if(pan)pan.classList.add('show');
+    }
     if(typeof renderWfAtts==='function')renderWfAtts();
 }
+
 
 
 function renderAttList(){
