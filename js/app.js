@@ -224,34 +224,45 @@ function renderWfAtts(){
     const box=document.getElementById('wfAttList');
     const cnt=document.getElementById('wfAttCount');
     if(!box)return;
+    // ★ 顶部状态：持续参考开关 + 知识库常驻数
+    const c=curChat();
+    const kbCount=(c&&c.knowledgeBase)?c.knowledgeBase.filter(k=>k.type!=='image'&&k.text).length:0;
+    const contOn=document.getElementById('wfAttCont')&&document.getElementById('wfAttCont').checked;
+    let statusHtml='<div style="font-size:11px;padding:4px 6px;margin-bottom:4px;border-radius:5px;background:var(--pri-l);color:var(--text2);line-height:1.6">'
+        +'🔄 持续参考：<b style="color:'+(contOn?'#10b981':'#999')+'">'+(contOn?'开（进知识库常驻）':'关（仅发一次）')+'</b>';
+    if(kbCount>0)statusHtml+='<br>📚 知识库常驻：<b style="color:var(--pri)">'+kbCount+' 个文件</b>（每步自动携带，去🎛️会话设置可预览）';
+    statusHtml+='</div>';
     if(!_pendingAtts.length){
-        box.innerHTML='<div style="font-size:11px;color:var(--text2);padding:2px 0">（暂无附件）</div>';
+        box.innerHTML=statusHtml+'<div style="font-size:11px;color:var(--text2);padding:2px 0">（待发送区暂无附件）</div>';
         if(cnt)cnt.textContent='';
         return;
     }
     if(cnt)cnt.textContent='('+_pendingAtts.length+')';
-    box.innerHTML='';
+    box.innerHTML=statusHtml;
     _pendingAtts.forEach((a,idx)=>{
         const item=document.createElement('div');item.className='att-item';
         const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
-        const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
+        const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;nm.title=a.fileName;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
         // ★ 打标开启且为文本类 → 预览按钮
         if(_attChunk&&a.type!=='image'&&a.text){
-            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
+            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';pv.style.flexShrink='0';
             pv.onclick=()=>previewChunkObj(a);
             item.appendChild(pv);
         }
-        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';
+        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';rm.style.flexShrink='0';
         rm.onclick=()=>{_pendingAtts.splice(idx,1);renderWfAtts();renderAttList();};
         item.appendChild(rm);box.appendChild(item);
     });
 }
+
 function wfAttInput(inputEl){Upload.fromInput(inputEl);}
 function updWfAttCont(){
     const chk=document.getElementById('wfAttCont');
     _wfAttContinuous=chk?chk.checked:false;
+    renderWfAtts();  // ★ 立刻刷新状态显示
 }
+
 
 async function wfSend(stepId){
     const c=curChat();
