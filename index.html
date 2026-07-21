@@ -108,6 +108,21 @@
         .admin-table td{color:var(--text)}
         .admin-ops button{border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px}
         .admin-ops button:hover{opacity:.7}
+        /* ★ 引擎/预设编辑样式 */
+        .eng-user-block{border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px}
+        .eng-user-hdr{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+        .eng-item{display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px;font-size:12px}
+        .preset-block{border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px}
+        .preset-hdr{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+        .preset-hdr input{padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px}
+        .step-block{border:1px dashed var(--border);border-radius:6px;padding:8px;margin:6px 0 6px 12px;background:var(--pri-l)}
+        .step-hdr{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+        .step-hdr input{padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px}
+        .step-hdr span{font-size:11px;color:var(--text2);white-space:nowrap}
+        .seg-item{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px;margin-bottom:4px}
+        .seg-label{font-size:11px;color:var(--text2);margin-bottom:3px}
+        .seg-item input,.seg-item textarea{width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px}
+        .seg-prompt-ta{min-height:60px;font-family:monospace}
 
         
     </style>
@@ -288,7 +303,7 @@
 </div></div></div>
 
 <!-- 模态框：超管后台 -->
-<div class="mo" id="mo-admin"><div class="md" style="max-width:900px;max-height:90vh"><div class="md-h"><h2>👑 超级管理后台</h2><button class="md-x" onclick="Admin.close()">×</button></div><div class="md-b">
+<div class="mo" id="mo-admin"><div class="md" style="max-width:95vw;width:95vw;max-height:92vh;height:92vh"><div class="md-h"><h2>👑 超级管理后台</h2><button class="md-x" onclick="Admin.close()">×</button></div><div class="md-b" style="height:calc(92vh - 60px);overflow-y:auto">
     <div class="admin-tabs" id="adminTabs">
         <button class="admin-tab act" data-tab="users" onclick="Admin.switchTab('users')">👥 账号</button>
         <button class="admin-tab" data-tab="engines" onclick="Admin.switchTab('engines')">🔌 引擎</button>
