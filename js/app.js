@@ -1,8 +1,5 @@
-/* ===== 飞凡AI - 主入口 (v2.7.0 功能大合集) ===== */
-/* 工作流 + 文件夹/日期分组/拖拽 + 模式锁定 + 钉钉报警
-   + 多协议(OpenAI/Anthropic/Gemini) + Prompt缓存 + token/费用统计 + 多Key轮询
-   + 物理打标(Chunker) */
-/* 美元转人民币预估汇率（美元为准，人民币仅供预估） */
+/* ===== 飞凡AI - 主入口 (v3.0.0 批次1) ===== */
+/* 批次1：参考框重构 + 备选参考 + 打标优化 + 发送预览窗 */
 const USD_TO_CNY = 6.8;
 let S = {
     profiles: {}, chats: {}, chatOrder: [], currentChatId: null,
@@ -14,7 +11,9 @@ let S = {
 let _saveTimer=null,_saveInProgress=null,_streamCtrl=null,_pendingAtts=[],_attContinuous=false,_exportMode='full';
 let _wfGroup='__all__',_wfPresetId=null;
 let _wfAttContinuous=false;
-let _attChunk=false;        // ★ 物理打标全局开关
+let _attChunk=false;
+let _refSelectMode=false;     // ★ 消息勾选模式
+let _selectedMsgs=[];         // ★ 已勾选消息id
 var _wfAlertCtx=null;
 let _dragChatId=null;
 
@@ -40,7 +39,7 @@ async function loadState(){
         if(!S.folderCollapsed||typeof S.folderCollapsed!=='object')S.folderCollapsed={};
         if(!S.defaultMode)S.defaultMode='free';
         if(!S.chatOrder||!S.chatOrder.length) S.chatOrder=Object.keys(S.chats||{}).sort((a,b)=>(S.chats[b].updatedAt||0)-(S.chats[a].updatedAt||0));
-        for(const cid in S.chats){const c=S.chats[cid];if(c.messages)c.messages.forEach(m=>{if(m._streaming){m._streaming=false;m._interrupted=true;}});}
+        for(const cid in S.chats){const c=S.chats[cid];if(!Array.isArray(c.refPool))c.refPool=[];if(c.messages)c.messages.forEach(m=>{if(m._streaming){m._streaming=false;m._interrupted=true;}});}
     }
     if(!S.profiles||!Object.keys(S.profiles).length) S.profiles=JSON.parse(JSON.stringify(API.DEFAULT_PROFILES));
     fixProfileFields();
@@ -48,7 +47,6 @@ async function loadState(){
     if(S.theme==='dark'){document.documentElement.setAttribute('data-theme','dark');const tb=document.getElementById('themeBtn');if(tb)tb.textContent='☀️';}
 }
 
-/* 补齐所有引擎字段（多协议 + 缓存 + 价格），老数据/导入数据都安全 */
 function fixProfileFields(){
     for(const id in S.profiles){const p=S.profiles[id];
         if(p.useTemp===undefined)p.useTemp=true;if(p.useMax===undefined)p.useMax=true;
@@ -76,7 +74,7 @@ function isModeLocked(c){ return !!(c&&c.modeLocked); }
 function newChat(){
     const id=gId();
     const mode=(S.defaultMode==='workflow')?'workflow':'free';
-    S.chats[id]={id:id,title:buildTitleWithSuffix('新对话',mode),messages:[],systemPrompt:'',knowledgeBase:[],isPinned:false,isArchived:false,createdAt:Date.now(),updatedAt:Date.now(),mode:mode,modeLocked:false,folderId:null};
+    S.chats[id]={id:id,title:buildTitleWithSuffix('新对话',mode),messages:[],systemPrompt:'',knowledgeBase:[],isPinned:false,isArchived:false,createdAt:Date.now(),updatedAt:Date.now(),mode:mode,modeLocked:false,folderId:null,refPool:[]};
     S.chatOrder.unshift(id);S.currentChatId=id;
     S.uiMode=(mode==='workflow')?'workflow':'chat';
     scheduleSave();renderAll();
@@ -86,6 +84,7 @@ function switchChat(id){
     if(!S.chats[id])return;S.currentChatId=id;
     const c=S.chats[id];
     S.uiMode=(chatMode(c)==='workflow')?'workflow':'chat';
+    _refSelectMode=false;_selectedMsgs=[];
     scheduleSave();renderAll();
     if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}
 }
@@ -118,7 +117,7 @@ function togTheme(){S.theme=S.theme==='dark'?'light':'dark';document.documentEle
 function updUserName(v){S.userName=(v||'').trim();scheduleSave();}
 function updDefaultMode(v){S.defaultMode=(v==='workflow')?'workflow':'free';scheduleSave();toast('默认新建模式：'+modeLabel(S.defaultMode));}
 
-/* ===== 安全：报警 + 敏感词拦截（工作流） ===== */
+/* ===== 安全：报警 + 敏感词拦截 ===== */
 function fireAlert(text){ if(typeof Workflow!=='undefined') Workflow.sendAlert(text); }
 function guardSensitive(inputText, sceneInfo){
     if(typeof Workflow==='undefined') return false;
@@ -137,7 +136,7 @@ function guardSensitive(inputText, sceneInfo){
     return false;
 }
 
-/* ===== 模式切换（对话级 + 锁定） ===== */
+/* ===== 模式切换 ===== */
 function setMode(mode){
     const target=(mode==='workflow')?'workflow':'free';
     const c=curChat();
@@ -185,7 +184,6 @@ function renderWorkflow(){
     renderWfAtts();
 }
 function onWfGroupChange(v){_wfGroup=v||'__all__';_wfPresetId=null;renderWorkflow();}
-
 function onWfSearch(){renderWorkflow();}
 function onWfPresetChange(v){_wfPresetId=v||null;renderWfSteps();}
 
@@ -219,21 +217,20 @@ function renderWfSteps(){
     });
 }
 
-/* ===== 工作流附件区（复用 _pendingAtts） ===== */
+/* ===== 工作流附件区 ===== */
 function renderWfAtts(){
     const box=document.getElementById('wfAttList');
     const cnt=document.getElementById('wfAttCount');
     if(!box)return;
-    // ★ 顶部状态：持续参考开关 + 知识库常驻数
     const c=curChat();
     const kbCount=(c&&c.knowledgeBase)?c.knowledgeBase.filter(k=>k.type!=='image'&&k.text).length:0;
     const contOn=document.getElementById('wfAttCont')&&document.getElementById('wfAttCont').checked;
     let statusHtml='<div style="font-size:11px;padding:4px 6px;margin-bottom:4px;border-radius:5px;background:var(--pri-l);color:var(--text2);line-height:1.6">'
-        +'🔄 持续参考：<b style="color:'+(contOn?'#10b981':'#999')+'">'+(contOn?'开（进知识库常驻）':'关（仅发一次）')+'</b>';
-    if(kbCount>0)statusHtml+='<br>📚 知识库常驻：<b style="color:var(--pri)">'+kbCount+' 个文件</b>（每步自动携带，去🎛️会话设置可预览）';
+        +'🔄 持续参考：<b style="color:'+(contOn?'#10b981':'#999')+'">'+(contOn?'开（进知识库常驻）':'关（进参考框）')+'</b>';
+    if(kbCount>0)statusHtml+='<br>📚 知识库常驻：<b style="color:var(--pri)">'+kbCount+' 个文件</b>';
     statusHtml+='</div>';
     if(!_pendingAtts.length){
-        box.innerHTML=statusHtml+'<div style="font-size:11px;color:var(--text2);padding:2px 0">（待发送区暂无附件）</div>';
+        box.innerHTML=statusHtml+'<div style="font-size:11px;color:var(--text2);padding:2px 0">（待发送区暂无附件，文件已进参考框）</div>';
         if(cnt)cnt.textContent='';
         return;
     }
@@ -244,7 +241,6 @@ function renderWfAtts(){
         const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;nm.title=a.fileName;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
-        // ★ 打标开启且为文本类 → 预览按钮
         if(_attChunk&&a.type!=='image'&&a.text){
             const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';pv.style.flexShrink='0';
             pv.onclick=()=>previewChunkObj(a);
@@ -255,14 +251,12 @@ function renderWfAtts(){
         item.appendChild(rm);box.appendChild(item);
     });
 }
-
 function wfAttInput(inputEl){Upload.fromInput(inputEl);}
 function updWfAttCont(){
     const chk=document.getElementById('wfAttCont');
     _wfAttContinuous=chk?chk.checked:false;
-    renderWfAtts();  // ★ 立刻刷新状态显示
+    renderWfAtts();
 }
-
 
 async function wfSend(stepId){
     const c=curChat();
@@ -295,11 +289,8 @@ async function wfSend(stepId){
     catch(e){toast('指令解密失败：'+e.message,'er');return;}
     if(built.missing&&built.missing.length){toast('请填写所有空位后再发送','er');return;}
     _wfAlertCtx={user:S.userName||'未署名',preset:presetName,step:built.stepName,input:joinedInput.trim()};
-
-    // 携带当前待发送附件（一次性）
     const attsForWf=_pendingAtts.slice();
     _pendingAtts=[];renderAttList();renderWfAtts();
-
     await coreSend({visibleText:built.displayText,actualText:built.sendText,titleHint:built.stepName,_wfLeakCheck:true,atts:attsForWf});
     const inputs=Workflow.getInputs(_wfPresetId,stepId);
     inputs.forEach(inp=>{
@@ -345,7 +336,7 @@ function dateGroupOf(ts){
     return '更早';
 }
 
-/* ===== 侧边栏（文件夹 + 日期分组 + 搜索 + 拖拽） ===== */
+/* ===== 侧边栏 ===== */
 function _makeChatLi(id){
     const c=S.chats[id];
     const li=document.createElement('li');
@@ -444,14 +435,99 @@ function renderBadge(){
     document.getElementById('badge').innerHTML=p?'当前引擎: <strong>'+esc(p.name)+'</strong>'+esc(protoTag)+esc(cacheTag)+'<br>模型: '+esc(p.model||'-'):'请先在 ⚙️ 中配置引擎';
 }
 
+/* ===== 参考框（refPool）核心 ===== */
+function curRefPool(){const c=curChat();if(!c)return[];if(!Array.isArray(c.refPool))c.refPool=[];return c.refPool;}
 
-/* ===== 渲染消息区 + token/费用信息 ===== */
+function renderRefPool(){
+    const bar=document.getElementById('refBar');
+    const list=document.getElementById('refList');
+    if(!bar||!list)return;
+    const pool=curRefPool();
+    if(!pool.length){bar.style.display='none';list.innerHTML='';return;}
+    bar.style.display='flex';
+    list.innerHTML='';
+    pool.forEach((r,idx)=>{
+        const item=document.createElement('span');
+        item.className='ref-item'+(r.checked?' ref-checked':'');
+        const cb=document.createElement('input');
+        cb.type='checkbox';cb.checked=!!r.checked;cb.className='ref-cb';
+        cb.onchange=()=>{r.checked=cb.checked;const c=curChat();if(c)c.updatedAt=Date.now();scheduleSave();renderRefPool();};
+        item.appendChild(cb);
+        const icon=r.kind==='file'?(r.type==='document'?'📄':r.type==='table'?'📊':r.type==='image'?'🖼️':'📝'):'💬';
+        let nm=r.name||'';
+        if(r.kind==='file'&&nm.length>8)nm=nm.slice(0,8)+'…';
+        const label=document.createElement('span');label.className='ref-name';label.textContent=icon+nm;label.title=r.name;
+        item.appendChild(label);
+        if(r.kind==='file'&&r.type!=='image'&&r.text){
+            const pv=document.createElement('button');pv.className='ref-btn';pv.textContent='👁';pv.title='预览打标';
+            pv.onclick=()=>previewChunkObj({fileName:r.name,type:r.type,text:r.text});
+            item.appendChild(pv);
+        }
+        const rm=document.createElement('button');rm.className='ref-btn ref-rm';rm.textContent='×';rm.title='移除';
+        rm.onclick=()=>{pool.splice(idx,1);const c=curChat();if(c)c.updatedAt=Date.now();scheduleSave();renderRefPool();};
+        item.appendChild(rm);
+        list.appendChild(item);
+    });
+}
+
+function addFileToRefPool(parsed){
+    const c=curChat();if(!c)return;
+    if(!Array.isArray(c.refPool))c.refPool=[];
+    c.refPool.push({
+        id:gId(),kind:'file',name:parsed.fileName,
+        type:parsed.type,text:parsed.text||'',dataUrl:parsed.dataUrl||null,
+        meta:parsed.meta||{},checked:true,addedAt:Date.now()
+    });
+    c.updatedAt=Date.now();scheduleSave();renderRefPool();
+}
+
+function toggleRefSelectMode(){
+    _refSelectMode=!_refSelectMode;_selectedMsgs=[];
+    const btn=document.getElementById('refSelBtn');
+    if(btn){btn.style.color=_refSelectMode?'#667eea':'';btn.style.background=_refSelectMode?'var(--pri-l)':'';}
+    renderMs();
+    if(_refSelectMode)toast('☑ 勾选模式：点选消息后，点"加入参考框"');
+}
+
+function addSelectedToRefPool(){
+    const c=curChat();if(!c){toast('无对话','er');return;}
+    if(!_selectedMsgs.length){toast('请先勾选消息','er');return;}
+    if(!Array.isArray(c.refPool))c.refPool=[];
+    let n=0;
+    _selectedMsgs.forEach(mid=>{
+        const m=c.messages.find(x=>x.id===mid);if(!m)return;
+        const txt=typeof m.content==='string'?m.content:'';
+        if(!txt)return;
+        const roleLabel=m.role==='user'?'问题':'回答';
+        const sameRole=c.messages.filter(x=>x.role===m.role);
+        const roundNo=sameRole.indexOf(m)+1;
+        c.refPool.push({
+            id:gId(),kind:'message',
+            name:roleLabel+roundNo,
+            type:'text',text:txt,checked:true,addedAt:Date.now()
+        });
+        n++;
+    });
+    c.updatedAt=Date.now();scheduleSave();
+    _refSelectMode=false;_selectedMsgs=[];
+    const btn=document.getElementById('refSelBtn');if(btn){btn.style.color='';btn.style.background='';}
+    renderMs();renderRefPool();
+    toast('✅ 已加入 '+n+' 项到参考框');
+}
+
+/* ===== 渲染消息区 ===== */
 function renderMs(){
     const area=document.getElementById('msgsArea');const c=curChat();
     if(!c){area.innerHTML='<div class="empty"><div class="ico">🚀</div><p>请先新建一个对话</p></div>';return;}
     UI.renderMessages(area,c.messages,{
         onDelete:(m)=>{c.messages=c.messages.filter(x=>x!==m);c.updatedAt=Date.now();scheduleSave();renderMs();},
         onRegen:(m)=>regenerate(m),
+        selectMode:_refSelectMode,
+        selectedMsgs:_selectedMsgs,
+        onSelectToggle:(mid,checked)=>{
+            if(checked){if(!_selectedMsgs.includes(mid))_selectedMsgs.push(mid);}
+            else{_selectedMsgs=_selectedMsgs.filter(x=>x!==mid);}
+        },
     });
     appendUsageInfo(area,c);
     const ti=document.getElementById('titleIn');if(ti)ti.value=c.title||'';
@@ -459,7 +535,6 @@ function renderMs(){
     renderChatTotal(c);
 }
 
-/* ===== 标题栏右侧显示本对话累计花费 ===== */
 function renderChatTotal(chat){
     let el=document.getElementById('chatTotalTag');
     if(!el){
@@ -506,12 +581,9 @@ function formatUsage(u,engId){
     if(cacheWrite)parts.push('✍写'+cacheWrite);
     let costStr='';
     const cost=calcMsgCost(u,engId);
-    if(cost!=null&&cost>0){
-        costStr=' ≈$'+cost.toFixed(4)+' (¥'+(cost*USD_TO_CNY).toFixed(4)+')';
-    }
+    if(cost!=null&&cost>0){costStr=' ≈$'+cost.toFixed(4)+' (¥'+(cost*USD_TO_CNY).toFixed(4)+')';}
     return ' | '+parts.join(' ')+costStr;
 }
-/* ===== 单条费用计算（按协议区分缓存；优先用平台返回费用） ===== */
 function calcMsgCost(u,engId){
     if(!u)return null;
     if(u.platformCost!=null)return u.platformCost;
@@ -520,18 +592,10 @@ function calcMsgCost(u,engId){
     const input=u.inputTokens||0,output=u.outputTokens||0;
     const cacheRead=u.cacheReadTokens||0,cacheWrite=u.cacheWriteTokens||0;
     let inputCost;
-    if((u.mode||p.protocol||'openai')==='openai'){
-        inputCost=Math.max(0,input-cacheRead-cacheWrite)/1e6*(p.priceIn||0);
-    }else{
-        inputCost=input/1e6*(p.priceIn||0);
-    }
-    return inputCost
-        + output/1e6*(p.priceOut||0)
-        + cacheRead/1e6*(p.priceCacheRead||0)
-        + cacheWrite/1e6*(p.priceCacheWrite||0);
+    if((u.mode||p.protocol||'openai')==='openai'){inputCost=Math.max(0,input-cacheRead-cacheWrite)/1e6*(p.priceIn||0);}
+    else{inputCost=input/1e6*(p.priceIn||0);}
+    return inputCost+output/1e6*(p.priceOut||0)+cacheRead/1e6*(p.priceCacheRead||0)+cacheWrite/1e6*(p.priceCacheWrite||0);
 }
-
-/* ===== 整段对话累计花费（token + 金额） ===== */
 function calcChatTotal(chat){
     const r={inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,totalTokens:0,cost:0,hasCost:false,hasUsage:false};
     if(!chat||!chat.messages)return r;
@@ -539,19 +603,17 @@ function calcChatTotal(chat){
         if(m.role!=='assistant'||!m._usage)return;
         const u=m._usage;
         r.hasUsage=true;
-        r.inputTokens+=u.inputTokens||0;
-        r.outputTokens+=u.outputTokens||0;
-        r.cacheReadTokens+=u.cacheReadTokens||0;
-        r.cacheWriteTokens+=u.cacheWriteTokens||0;
+        r.inputTokens+=u.inputTokens||0;r.outputTokens+=u.outputTokens||0;
+        r.cacheReadTokens+=u.cacheReadTokens||0;r.cacheWriteTokens+=u.cacheWriteTokens||0;
         const c=calcMsgCost(u,m._engId);
         if(c!=null){r.cost+=c;r.hasCost=true;}
     });
     r.totalTokens=r.inputTokens+r.outputTokens+r.cacheReadTokens+r.cacheWriteTokens;
     return r;
 }
-function renderAll(){renderSB();renderMs();renderEngTabs();renderEngForm();renderCSForm();renderStorageInfo();renderArchiveInfo();renderMode();}
+function renderAll(){renderSB();renderMs();renderEngTabs();renderEngForm();renderCSForm();renderStorageInfo();renderArchiveInfo();renderRefPool();renderMode();}
 
-/* ===== 引擎配置（多协议 + 缓存 + 价格 + 多Key） ===== */
+/* ===== 引擎配置 ===== */
 function renderEngTabs(){
     const tabs=document.getElementById('engTabs');if(!tabs)return;tabs.innerHTML='';
     Object.values(S.profiles).forEach(p=>{
@@ -608,7 +670,6 @@ function renderEngForm(){
         const cacheBlock=form.querySelector('#engUseCache');if(cacheBlock)cacheBlock.closest('div[style*="background"]').style.display='none';
     }
     bindEngEvents(p);
-
 }
 
 function bindEngEvents(p){
@@ -627,18 +688,14 @@ function setMax(val){document.getElementById('engMax').value=val;}
 function onEngTypeChange(){
     const t=document.getElementById('engType').value;
     const p=S.profiles[S.currentEngId];if(!p)return;
-    p.engineType=t;
-    renderEngForm();
+    p.engineType=t;renderEngForm();
 }
 
 function saveEng(){
     const p=S.profiles[S.currentEngId];if(!p)return;
     p.name=document.getElementById('engName').value.trim()||p.name;
     const etEl=document.getElementById('engType');if(etEl)p.engineType=etEl.value;
-    const protoEl=document.getElementById('engProto');
-    if(protoEl)p.protocol=protoEl.value;
-
-    
+    const protoEl=document.getElementById('engProto');if(protoEl)p.protocol=protoEl.value;
     p.base=document.getElementById('engBase').value.trim();
     p.key=document.getElementById('engKey').value.trim();
     p.model=document.getElementById('engModel').value.trim();
@@ -658,7 +715,6 @@ function saveEng(){
 async function fMdls(){
     const p=S.profiles[S.currentEngId];if(!p)return;
     p.protocol=document.getElementById('engProto').value;
-    
     p.base=document.getElementById('engBase').value.trim();p.key=document.getElementById('engKey').value.trim();
     if(!p.base||!p.key){toast('请先填写 Base URL 和 API Key','er');return;}
     const btn=document.getElementById('fMdlsBtn');btn.disabled=true;btn.textContent='⏳ 获取中...';
@@ -674,7 +730,6 @@ async function fMdls(){
 async function tConn(){
     const p=S.profiles[S.currentEngId];if(!p)return;
     p.protocol=document.getElementById('engProto').value;
-    
     p.base=document.getElementById('engBase').value.trim();p.key=document.getElementById('engKey').value.trim();
     if(!p.base||!p.key){toast('请先填写 Base URL 和 API Key','er');return;}
     const btn=document.getElementById('tConnBtn');btn.disabled=true;btn.textContent='⏳ 测试中...';
@@ -707,7 +762,7 @@ function renderArchiveInfo(){
     if(!Archive.isSupported()){el.innerHTML='<span style="color:var(--text2)">⚠️ 当前浏览器不支持自动存档（需 Chrome / Edge）</span>';return;}
     if(Archive.isEnabled()){
         const authTxt=Archive.isAuthorized()?'🟢 已授权':'🔴 待授权（刷新后点授权弹窗）';
-        el.innerHTML='✅ 已开启自动存档（'+authTxt+'）<br>目录：<strong>'+esc(Archive.getDirName())+'</strong><br><span style="font-size:11px;color:var(--text2)">每 '+(S.archiveInterval||10)+' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话（删除对话不会删本地文件）</span>';
+        el.innerHTML='✅ 已开启自动存档（'+authTxt+'）<br>目录：<strong>'+esc(Archive.getDirName())+'</strong><br><span style="font-size:11px;color:var(--text2)">每 '+(S.archiveInterval||10)+' 分钟 + AI回复停笔1分钟后，自动保存有变动的对话</span>';
     }else el.innerHTML='<span style="color:var(--text2)">未设置存档目录</span>';
 }
 function updArchiveInterval(v){S.archiveInterval=parseInt(v,10)||0;scheduleSave();if(typeof Archive!=='undefined')Archive.setInterval(S.archiveInterval);renderArchiveInfo();toast('存档间隔：'+(S.archiveInterval?S.archiveInterval+' 分钟':'关闭定时'));}
@@ -735,10 +790,9 @@ function toggleChunk(){
         btn.style.background=_attChunk?'var(--pri-l)':'';
         btn.title='物理打标（'+(_attChunk?'开':'关')+'）';
     }
-    toast(_attChunk?'📐 物理打标已开启（对话/工作流/知识库统一生效）':'📐 物理打标已关闭');
-    renderAttList();
+    toast(_attChunk?'📐 物理打标已开启（对话/工作流/知识库/参考框统一生效）':'📐 物理打标已关闭');
+    renderRefPool();renderAttList();
 }
-
 
 /* ===== 打标预览 ===== */
 function previewChunkObj(att){
@@ -746,21 +800,50 @@ function previewChunkObj(att){
     if(!att||!att.text){toast('该附件无文本，无法预览','er');return;}
     const ta=document.getElementById('chunkPreviewTA');
     if(ta)ta.value=Chunker.previewOne(att);
+    const h=document.querySelector('#mo-chunk-preview .md-h h2');
+    if(h)h.textContent='📐 打标预览（发给AI的文本）';
     openM('chunk-preview');
 }
-
-
 function copyChunkPreview(){
     const ta=document.getElementById('chunkPreviewTA');
     if(!ta||!ta.value){toast('无内容','er');return;}
-    try{
-        navigator.clipboard.writeText(ta.value).then(()=>toast('✅ 已复制打标文本'));
-    }catch(e){
-        ta.select();document.execCommand('copy');toast('✅ 已复制');
-    }
+    try{navigator.clipboard.writeText(ta.value).then(()=>toast('✅ 已复制'));}
+    catch(e){ta.select();document.execCommand('copy');toast('✅ 已复制');}
 }
 
-/* ===== 核心发送（融合：工作流泄露检测 + 多协议 + token统计 + 模式锁定 + 全量发送 + 知识库常驻 + 物理打标） ===== */
+/* ===== 发送内容预览窗 ===== */
+function previewSend(){
+    const c=curChat();if(!c){toast('无对话','er');return;}
+    let out='';
+    let sys='';
+    if(c.systemPrompt&&c.systemPrompt.trim())sys+=c.systemPrompt.trim();
+    let kbText='';
+    if(c.knowledgeBase&&c.knowledgeBase.length){
+        c.knowledgeBase.forEach(k=>{if(k.text)kbText+='\n[知识库]'+k.name+'（'+cntW(k.text)+'字）';});
+    }
+    if(kbText)sys+='\n【知识库资料】'+kbText;
+    out+='━━━ SYSTEM（系统提示词+知识库）━━━\n'+(sys||'（空）')+'\n\n';
+    let ref='';
+    curRefPool().forEach(r=>{
+        if(!r.checked)return;
+        if(r.kind==='file'&&r.type==='image'){ref+='\n[图片] '+r.name;return;}
+        if(!r.text)return;
+        let body=r.text;
+        if(r.kind==='file'&&_attChunk&&typeof Chunker!=='undefined')body=Chunker.chunk(r.text,{}).marked;
+        ref+='\n=== '+(r.kind==='file'?'📎'+r.name:'💬'+r.name)+' ===\n'+body+'\n';
+    });
+    out+='━━━ 参考框（勾选项，放最前）━━━\n'+(ref||'（无勾选项）')+'\n\n';
+    const inpVal=(document.getElementById('uIn')?document.getElementById('uIn').value:'')||'（输入框当前为空）';
+    out+='━━━ 本轮问题 ━━━\n'+inpVal+'\n\n';
+    out+='━━━ 说明 ━━━\n实际发送还包含历史对话。工作流隐藏指令在此不展示（保密）。';
+    const ta=document.getElementById('chunkPreviewTA');
+    if(ta)ta.value=out;
+    const h=document.querySelector('#mo-chunk-preview .md-h h2');
+    if(h)h.textContent='📤 发送内容预览';
+    openM('chunk-preview');
+}
+
+/* ===== 核心发送 ===== */
 async function coreSend(opts){
     opts=opts||{};
     let c=curChat();if(!c){newChat();c=curChat();}
@@ -770,32 +853,37 @@ async function coreSend(opts){
     const visibleText=opts.visibleText,actualText=opts.actualText;
     const attsForUser=opts.atts||[];
 
-    // ★ 物理打标处理（全局开关 _attChunk）
     let processedAtts=attsForUser;
-    if(_attChunk&&typeof Chunker!=='undefined'){
-        processedAtts=Chunker.chunkAttachments(attsForUser,{});
-    }
+    if(_attChunk&&typeof Chunker!=='undefined'){processedAtts=Chunker.chunkAttachments(attsForUser,{});}
 
-    // 本轮一次性附件（图片 + 文本）
     let attachedText='';const imageAtts=[];
     processedAtts.forEach(a=>{if(a.type==='image')imageAtts.push(a);else if(a.text)attachedText+='\n\n=== 📎 附件：'+a.fileName+' ===\n'+a.text+'\n=== 附件结束 ===\n';});
 
-    // 知识库（持续参考）：作为常驻上下文，每轮都注入
+    // 知识库
     let kbText='';const kbImages=[];
     if(c.knowledgeBase&&c.knowledgeBase.length){
         c.knowledgeBase.forEach(k=>{
             if(k.type==='image')kbImages.push({fileName:k.name,dataUrl:k.dataUrl,type:'image'});
             else if(k.text){
-                // ★ 知识库也跟打标开关走
                 let body=k.text;
-                if(_attChunk&&typeof Chunker!=='undefined'){
-                    const r=Chunker.chunk(k.text,{});
-                    body=r.marked;
-                }
+                if(_attChunk&&typeof Chunker!=='undefined'){body=Chunker.chunk(k.text,{}).marked;}
                 kbText+='\n\n=== 📚 知识库：'+k.name+' ===\n'+body+'\n=== 知识库结束 ===\n';
             }
         });
     }
+
+    // ★ 参考框：勾选中的项
+    let refText='';const refImages=[];
+    curRefPool().forEach(r=>{
+        if(!r.checked)return;
+        if(r.kind==='file'&&r.type==='image'&&r.dataUrl){refImages.push(r);return;}
+        if(!r.text)return;
+        let body=r.text;
+        if(r.kind==='file'&&_attChunk&&typeof Chunker!=='undefined'){body=Chunker.chunk(r.text,{}).marked;}
+        const tag=r.kind==='file'?'📎参考文件：'+r.name:'💬参考片段·'+r.name;
+        refText+='\n\n=== '+tag+' ===\n'+body+'\n=== 结束 ===\n';
+    });
+
     const composedUserText=(attachedText?attachedText+'\n':'')+actualText;
 
     const userMsg={id:gId(),role:'user',content:visibleText,_actual:actualText,attachments:attsForUser.map(a=>({name:a.fileName,type:a.type,ext:a.meta&&a.meta.ext})),_time:nowTime()};
@@ -803,14 +891,12 @@ async function coreSend(opts){
     const aiMsg={id:gId(),role:'assistant',content:'',_streaming:true,_time:nowTime(),_engId:S.currentEngId};
     c.messages.push(aiMsg);
 
-    /* 发送首条消息后锁定模式 */
     if(!c.modeLocked){
         if(!c.mode)c.mode=(S.uiMode==='workflow')?'workflow':'free';
         c.modeLocked=true;
         c.title=buildTitleWithSuffix(c.title,c.mode);
     }
 
-    // 标题自动命名（保留模式后缀）
     const bareTitle=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();
     if((bareTitle===''||bareTitle==='新对话')&&c.messages.length<=2){
         c.title=buildTitleWithSuffix((opts.titleHint||visibleText||'新对话').slice(0,24),chatMode(c));
@@ -818,14 +904,23 @@ async function coreSend(opts){
     c.updatedAt=Date.now();
     renderMs();renderSB();renderMode();
 
-    /* ===== 构建发送消息（每轮全量；知识库进 system 常驻 + 可缓存） ===== */
+    /* ===== 构建发送消息 ===== */
     const sendMsgs=[];
     let systemContent='';
     if(c.systemPrompt&&c.systemPrompt.trim())systemContent+=c.systemPrompt.trim();
     if(kbText)systemContent+=(systemContent?'\n\n':'')+'【以下是持续参考的知识库资料，请在回答时参考】'+kbText;
     if(systemContent)sendMsgs.push({role:'system',content:systemContent});
 
-    // 知识库图片 → 第一条 user 常驻（图片无法进 system）
+    // ★ 参考框内容作为最前 user（固定位置，缓存友好）
+    if(refText||refImages.length){
+        const refParts=[];
+        if(refText)refParts.push({type:'text',text:'【以下是我提供的参考资料，请在回答时依据它】'+refText});
+        refImages.forEach(im=>refParts.push({type:'image_url',image_url:{url:im.dataUrl}}));
+        sendMsgs.push({role:'user',content:refParts.length===1&&refParts[0].type==='text'?refParts[0].text:refParts});
+        sendMsgs.push({role:'assistant',content:'已收到你提供的参考资料，我会在回答中依据它。'});
+    }
+
+    // 知识库图片
     if(kbImages.length){
         const kbParts=[{type:'text',text:'【以下是持续参考的知识库图片】'}];
         kbImages.forEach(im=>kbParts.push({type:'image_url',image_url:{url:im.dataUrl}}));
@@ -833,7 +928,7 @@ async function coreSend(opts){
         sendMsgs.push({role:'assistant',content:'已收到知识库图片，我会在后续回答中参考。'});
     }
 
-    // 历史对话（不含正在生成的 aiMsg）；用 m===userMsg 精准定位本轮，杜绝索引错位
+    // 历史对话
     c.messages.forEach((m)=>{
         if(m===aiMsg)return;
         if(m._interrupted&&!m.content)return;
@@ -863,7 +958,6 @@ async function coreSend(opts){
         onDelta:(d,full)=>{aiMsg.content=full;updater(full);if(Date.now()-lastSaveTime>SAVE_INTERVAL){lastSaveTime=Date.now();scheduleSave();}},
         onDone:async(full,usage)=>{
             let finalText=full;
-            // 工作流泄露检测（仅工作流步骤触发 _wfLeakCheck）
             if(opts._wfLeakCheck&&typeof Workflow!=='undefined'&&Workflow.isLeak(full)){
                 const masked='\u2588'.repeat(Math.min(Math.max(full.length,20),200));
                 finalText='⚠️ 检测到尝试获取受保护内容，本次输出已被屏蔽。\n\n'+masked;
@@ -908,15 +1002,12 @@ async function send(){
     const inp=document.getElementById('uIn');const text=(inp.value||'').trim();
     if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}
     const c=curChat();
-    if(c&&chatMode(c)==='workflow'){
-        if(text&&guardSensitive(text,'工作流·自由输入'))return;
-    }
+    if(c&&chatMode(c)==='workflow'){if(text&&guardSensitive(text,'工作流·自由输入'))return;}
     const profile=curProfile();
     if(profile&&profile.engineType==='image'){
         if(!text){toast('请输入图片描述（prompt）','er');return;}
         inp.value='';aRsz(inp);
-        await coreSendImage(text);
-        return;
+        await coreSendImage(text);return;
     }
     const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';
     const attsForUser=_pendingAtts.slice();
@@ -929,22 +1020,16 @@ async function coreSendImage(prompt){
     let c=curChat();if(!c){newChat();c=curChat();}
     const profile=curProfile();
     if(!profile||!profile.key){toast('请先在 ⚙️ 中配置引擎 API Key','er');openM('set');return;}
-
     const userMsg={id:gId(),role:'user',content:prompt,_actual:prompt,_time:nowTime()};
     c.messages.push(userMsg);
     const aiMsg={id:gId(),role:'assistant',content:'🎨 正在生成图片...',_streaming:true,_time:nowTime(),_engId:S.currentEngId,_isImage:true};
     c.messages.push(aiMsg);
-
     if(!c.modeLocked){if(!c.mode)c.mode=(S.uiMode==='workflow')?'workflow':'free';c.modeLocked=true;c.title=buildTitleWithSuffix(c.title,c.mode);}
     const bareTitle=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();
     if((bareTitle===''||bareTitle==='新对话')&&c.messages.length<=2){c.title=buildTitleWithSuffix(prompt.slice(0,24),chatMode(c));}
-    c.updatedAt=Date.now();
-    renderMs();renderSB();
-    await saveNow();
-
+    c.updatedAt=Date.now();renderMs();renderSB();await saveNow();
     const sendBtn=document.getElementById('sendBtn');sendBtn.classList.add('stop');sendBtn.textContent='■';
     const area=document.getElementById('msgsArea');const lastMsgEl=area.querySelector('.msg:last-child .bub');
-
     _streamCtrl=API.generateImage(profile,prompt,{size:'1024x1024',n:1},{
         onStart:()=>{},
         onImage:async(imgs)=>{
@@ -963,7 +1048,6 @@ async function coreSendImage(prompt){
         },
     });
 }
-
 
 async function regenerate(msg){
     const c=curChat();if(!c)return;
@@ -995,6 +1079,7 @@ async function _importShareFile(file){
             const result=await Snapshot.importSharedChat(file,password);
             const chat=result.chat;
             if(!chat.mode)chat.mode='free';chat.modeLocked=true;chat.folderId=chat.folderId||null;
+            if(!Array.isArray(chat.refPool))chat.refPool=[];
             chat.title=buildTitleWithSuffix(chat.title,chat.mode);
             S.chats[chat.id]=chat;S.chatOrder.unshift(chat.id);S.currentChatId=chat.id;
             await saveNow();renderAll();
@@ -1046,21 +1131,23 @@ async function handleUploadedFiles(files){
                 }
             });
             c.updatedAt=Date.now();await saveNow();renderKBList();
-            if(addedToKB>0)toast('📚 已加入持续参考（'+addedToKB+' 个文件），后续每轮都会自动参考');
+            if(addedToKB>0)toast('📚 已加入知识库（'+addedToKB+' 个文件），后续每轮都会自动参考');
         }
     }else{
-        if(okCount>0)toast('✅ 已解析 '+okCount+' 个文件'+(failCount?'（'+failCount+' 失败）':''));
+        // ★ 非持续参考 → 进参考框
+        let added=0;
+        results.forEach(r=>{
+            if(r.ok){
+                const pi=_pendingAtts.indexOf(r.result);if(pi>-1)_pendingAtts.splice(pi,1);
+                addFileToRefPool(r.result);added++;
+            }
+        });
+        if(added>0)toast('✅ 已解析 '+added+' 个文件，加入参考框（勾选即带，取消则不带）'+(failCount?'（'+failCount+' 失败）':''));
     }
     renderAttList();
-    // ★ 自动展开附件面板，让用户看到刚拖入/上传的文件
-    if(_pendingAtts.length){
-        const pan=document.getElementById('attPan');
-        if(pan)pan.classList.add('show');
-    }
+    renderRefPool();
     if(typeof renderWfAtts==='function')renderWfAtts();
 }
-
-
 
 function renderAttList(){
     const box=document.getElementById('attListBox'),list=document.getElementById('attList'),cnt=document.getElementById('attCount'),btn=document.getElementById('attBtn');
@@ -1071,7 +1158,6 @@ function renderAttList(){
         const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
-        // ★ 打标开启且为文本类附件 → 加单独预览按钮
         if(_attChunk&&a.type!=='image'&&a.text){
             const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
             pv.onclick=()=>previewChunkObj(a);
@@ -1102,7 +1188,6 @@ function renderKBList(){
         const icon=k.type==='image'?'🖼️':k.type==='table'?'📊':k.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+k.name;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=k.type==='image'?'图片':(cntW(k.text||'')+' 字');item.appendChild(sz);
-        // ★ 打标开启且为文本类 → 预览按钮（字段映射：name→fileName）
         if(_attChunk&&k.type!=='image'&&k.text){
             const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
             pv.onclick=()=>previewChunkObj({fileName:k.name,type:k.type,text:k.text});
@@ -1112,10 +1197,9 @@ function renderKBList(){
         rm.onclick=async()=>{if(!confirm('从知识库移除 "'+k.name+'"？'))return;c.knowledgeBase.splice(idx,1);c.updatedAt=Date.now();await saveNow();renderKBList();};
         item.appendChild(rm);wrap.appendChild(item);
     });
-
 }
 
-/* ===== 快照 / 导入导出（含回滚备份 + 字段补齐） ===== */
+/* ===== 快照 / 导入导出 ===== */
 function eSnap(){const includeKey=confirm('导出快照\n\n✅ 确定 = 含 API Key\n❌ 取消 = 不含 API Key');Snapshot.exportToFile(S,{includeKey:includeKey});}
 
 async function iSnap(inputEl){
@@ -1131,6 +1215,7 @@ async function iSnap(inputEl){
         if(!Array.isArray(S.folders))S.folders=[];
         if(!S.folderCollapsed||typeof S.folderCollapsed!=='object')S.folderCollapsed={};
         if(!S.defaultMode)S.defaultMode='free';
+        for(const cid in S.chats){if(!Array.isArray(S.chats[cid].refPool))S.chats[cid].refPool=[];}
         if(!S.profiles[S.currentEngId])S.currentEngId=Object.keys(S.profiles)[0]||'claude';
         fixProfileFields();
         await saveNow();await Snapshot.snapNow(S);renderAll();
@@ -1151,6 +1236,7 @@ async function rollbackImport(){
         if(!Array.isArray(S.folders))S.folders=[];
         if(!S.folderCollapsed||typeof S.folderCollapsed!=='object')S.folderCollapsed={};
         if(!S.defaultMode)S.defaultMode='free';
+        for(const cid in S.chats){if(!Array.isArray(S.chats[cid].refPool))S.chats[cid].refPool=[];}
         if(!S.profiles[S.currentEngId])S.currentEngId=Object.keys(S.profiles)[0]||'claude';
         fixProfileFields();
         if(!S.currentChatId||!S.chats[S.currentChatId]){if(S.chatOrder&&S.chatOrder.length&&S.chats[S.chatOrder[0]])S.currentChatId=S.chatOrder[0];else S.currentChatId=null;}
@@ -1159,7 +1245,7 @@ async function rollbackImport(){
     }catch(e){console.error('[Rollback]',e);toast('恢复失败：'+e.message,'er');}
 }
 
-/* ===== 对话导出（TXT / Markdown / HTML / Word） ===== */
+/* ===== 对话导出 ===== */
 function updExp(){_exportMode=document.getElementById('expFmt').value;updExpPreview();}
 function buildExportContent(chatArg,modeArg){
     const c=chatArg||curChat();const mode=modeArg||_exportMode;
@@ -1239,6 +1325,7 @@ async function checkURLImport(){
         if(raw&&raw.__feifan_enc__&&raw.hasPassword){const pwd=prompt('该分享已加密，请输入访问口令：','');password=pwd?pwd.trim():'';}
         const result=await Snapshot.normalizeSharedObject(raw,password);const chat=result.chat;
         if(!chat.mode)chat.mode='free';chat.modeLocked=true;chat.folderId=chat.folderId||null;
+        if(!Array.isArray(chat.refPool))chat.refPool=[];
         chat.title=buildTitleWithSuffix(chat.title,chat.mode);
         S.chats[chat.id]=chat;S.chatOrder.unshift(chat.id);S.currentChatId=chat.id;await saveNow();renderAll();
         toast('✅ 已导入分享对话'+(result.sharedBy?'（来自: '+result.sharedBy+'）':'')+'，可继续聊天！');
