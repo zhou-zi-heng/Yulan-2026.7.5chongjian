@@ -11,6 +11,7 @@ const PRECACHE = [
     './js/storage.js?v=3.0.0',
     './js/api.js?v=3.0.0',
     './js/auth.js?v=3.0.0',
+    './js/admin.js?v=3.0.0',
     './js/ui.js?v=3.0.0',
     './js/parser.js?v=3.0.0',
     './js/chunker.js?v=3.0.0',
