@@ -30,6 +30,7 @@
 
     <link rel="stylesheet" href="css/main.css?v=3.0.0">
     <link rel="stylesheet" href="css/theme.css?v=3.0.0">
+
     <style>
         .mode-switch{display:flex;gap:4px;margin-right:8px}
         .mode-switch button{padding:5px 12px;font-size:13px;border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:8px;cursor:pointer;white-space:nowrap}
@@ -82,6 +83,18 @@
         .sel-actionbar{display:none;align-items:center;gap:8px;padding:6px 12px;background:#fff3cd;border-bottom:1px solid #ffe69c;flex-shrink:0;font-size:12px}
         [data-theme="dark"] .sel-actionbar{background:#3a3320;border-bottom-color:#5a4d2a}
         .sel-actionbar.show{display:flex}
+        /* ★ 登录页 */
+        #loginOverlay{position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,#667eea,#764ba2);display:flex;align-items:center;justify-content:center}
+        .login-box{background:#fff;border-radius:16px;padding:36px 32px;width:320px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
+        .login-logo{font-size:48px;line-height:1}
+        .login-box h2{font-size:20px;margin:12px 0 4px;color:#1f2937}
+        .login-sub{font-size:13px;color:#6b7280;margin-bottom:20px}
+        .login-box input{width:100%;box-sizing:border-box;padding:12px 14px;margin-bottom:12px;border:1px solid #e5e7eb;border-radius:10px;font-size:14px;outline:none}
+        .login-box input:focus{border-color:#667eea}
+        .login-err{color:#ef4444;font-size:12px;min-height:16px;margin-bottom:8px;text-align:left}
+        .login-box button{width:100%;padding:13px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer}
+        .login-box button:disabled{opacity:.6;cursor:not-allowed}
+
     </style>
 </head>
 <body>
@@ -272,6 +285,7 @@
 <script src="js/snapshot.js?v=3.0.0"></script>
 <script src="js/archive.js?v=3.0.0"></script>
 <script src="js/workflow.js?v=3.0.0"></script>
+<script src="js/auth.js?v=3.0.0"></script>
 <script src="js/app.js?v=3.0.0"></script>
 
 </body>
