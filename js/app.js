@@ -485,9 +485,12 @@ function toggleRefSelectMode(){
     _refSelectMode=!_refSelectMode;_selectedMsgs=[];
     const btn=document.getElementById('refSelBtn');
     if(btn){btn.style.color=_refSelectMode?'#667eea':'';btn.style.background=_refSelectMode?'var(--pri-l)':'';}
+    const bar=document.getElementById('selActionBar');
+    if(bar)bar.classList.toggle('show',_refSelectMode);
     renderMs();
     if(_refSelectMode)toast('☑ 勾选模式：点选消息后，点"加入参考框"');
 }
+
 
 function addSelectedToRefPool(){
     const c=curChat();if(!c){toast('无对话','er');return;}
@@ -511,8 +514,10 @@ function addSelectedToRefPool(){
     c.updatedAt=Date.now();scheduleSave();
     _refSelectMode=false;_selectedMsgs=[];
     const btn=document.getElementById('refSelBtn');if(btn){btn.style.color='';btn.style.background='';}
+    const bar=document.getElementById('selActionBar');if(bar)bar.classList.remove('show');
     renderMs();renderRefPool();
     toast('✅ 已加入 '+n+' 项到参考框');
+
 }
 
 /* ===== 渲染消息区 ===== */
