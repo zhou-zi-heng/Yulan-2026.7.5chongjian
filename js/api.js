@@ -58,9 +58,14 @@ const API = (function () {
             buildAuthHeaders(profile, key || ''),
             opts.headers || {}
         );
+        // ★ 带上登录 token
+        if (typeof Auth !== 'undefined' && Auth.getToken()) {
+            headers['X-Auth-Token'] = Auth.getToken();
+        }
         if (!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
         return fetch(url, { method: opts.method || 'GET', headers: headers, body: opts.body, signal: opts.signal });
     }
+
 
     /* ---------- 参数报错中文化（来自版本1） ---------- */
     const PARAM_KEYS = ['temperature', 'top_p', 'max_tokens', 'frequency_penalty', 'presence_penalty'];
