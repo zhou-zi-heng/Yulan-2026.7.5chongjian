@@ -1,4 +1,4 @@
-/* ===== 飞凡AI - UI 渲染层 ===== */
+/* ===== 飞凡AI - UI 渲染层 (v3.0.0 批次1) ===== */
 
 const UI = (function () {
 
@@ -20,7 +20,6 @@ const UI = (function () {
                 return '';
             },
         });
-        // 插件
         try {
             if (window.markdownitSub) _md.use(window.markdownitSub);
             if (window.markdownitSup) _md.use(window.markdownitSup);
@@ -34,7 +33,7 @@ const UI = (function () {
         return _md;
     }
 
-    /* ---------- 渲染 Markdown 文本 → HTML（含数学/Mermaid） ---------- */
+    /* ---------- 渲染 Markdown 文本 → HTML ---------- */
     function renderMarkdown(text) {
         const md = getMD();
         let html;
@@ -43,43 +42,34 @@ const UI = (function () {
         } else {
             html = '<p>' + esc(text) + '</p>';
         }
-
-        // DOMPurify 清洗
         if (window.DOMPurify) {
             html = window.DOMPurify.sanitize(html, {
                 ADD_TAGS: ['mark', 'sub', 'sup'],
                 ADD_ATTR: ['target'],
             });
         }
-
         return html;
     }
 
     /* ---------- 渲染数学公式（KaTeX） ---------- */
     function renderMath(container) {
         if (!window.katex) return;
-        // 块公式 $$...$$
         const blockRegex = /\$\$([\s\S]+?)\$\$/g;
-        // 行内公式 $...$
         const inlineRegex = /\$([^\$\n]+?)\$/g;
-
         function processNode(node) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const text = node.textContent;
                 if (!text.includes('$')) return;
                 const parent = node.parentNode;
                 if (!parent || parent.tagName === 'CODE' || parent.tagName === 'PRE') return;
-
                 let html = esc(text);
                 html = html.replace(blockRegex, (_, expr) => {
-                    try {
-                        return katex.renderToString(expr, { displayMode: true, throwOnError: false });
-                    } catch (e) { return _; }
+                    try { return katex.renderToString(expr, { displayMode: true, throwOnError: false }); }
+                    catch (e) { return _; }
                 });
                 html = html.replace(inlineRegex, (_, expr) => {
-                    try {
-                        return katex.renderToString(expr, { displayMode: false, throwOnError: false });
-                    } catch (e) { return _; }
+                    try { return katex.renderToString(expr, { displayMode: false, throwOnError: false }); }
+                    catch (e) { return _; }
                 });
                 if (html !== esc(text)) {
                     const span = document.createElement('span');
@@ -107,15 +97,12 @@ const UI = (function () {
             wrap.textContent = code;
             const pre = codeEl.closest('pre');
             if (pre && pre.parentNode) pre.parentNode.replaceChild(wrap, pre);
-            try {
-                mermaid.run({ nodes: [wrap] });
-            } catch (e) {
-                console.warn('[Mermaid]', e);
-            }
+            try { mermaid.run({ nodes: [wrap] }); }
+            catch (e) { console.warn('[Mermaid]', e); }
         });
     }
 
-    /* ---------- 包装代码块（添加复制按钮 + 折叠） ---------- */
+    /* ---------- 包装代码块 ---------- */
     function wrapCodeBlocks(container) {
         const pres = container.querySelectorAll('pre');
         pres.forEach(pre => {
@@ -126,17 +113,14 @@ const UI = (function () {
             const lang = langClass ? langClass[1] : '';
             const text = code.textContent;
             const long = text.split('\n').length > 15;
-
             const wrap = document.createElement('div');
             wrap.className = 'code-wrap' + (long ? ' code-collapsed' : '');
-
             if (lang) {
                 const tag = document.createElement('div');
                 tag.className = 'code-lang';
                 tag.textContent = lang;
                 wrap.appendChild(tag);
             }
-
             const copyBtn = document.createElement('button');
             copyBtn.className = 'code-copy-top';
             copyBtn.textContent = '复制';
@@ -148,10 +132,8 @@ const UI = (function () {
                 }).catch(() => toast('复制失败', 'er'));
             };
             wrap.appendChild(copyBtn);
-
             pre.parentNode.replaceChild(wrap, pre);
             wrap.appendChild(pre);
-
             if (long) {
                 const toggle = document.createElement('div');
                 toggle.className = 'code-toggle';
@@ -164,8 +146,6 @@ const UI = (function () {
                 toggle.appendChild(btn);
                 wrap.appendChild(toggle);
             }
-
-            // 底部复制按钮
             const bottom = document.createElement('div');
             bottom.className = 'code-copy-bottom';
             const btnB = document.createElement('button');
@@ -181,7 +161,7 @@ const UI = (function () {
         });
     }
 
-    /* ---------- 完整渲染流程（用于消息完成后） ---------- */
+    /* ---------- 完整渲染流程 ---------- */
     function fullRender(bubElement, text) {
         bubElement.classList.remove('streaming');
         bubElement.innerHTML = renderMarkdown(text);
@@ -189,25 +169,17 @@ const UI = (function () {
             renderMath(bubElement);
             wrapCodeBlocks(bubElement);
             renderMermaid(bubElement);
-            // 图片点击放大
             bubElement.querySelectorAll('img').forEach(img => {
                 img.onclick = () => {
                     const lb = document.getElementById('lightbox');
                     const lbImg = document.getElementById('lbImg');
-                    if (lb && lbImg) {
-                        lbImg.src = img.src;
-                        lb.classList.add('show');
-                    }
+                    if (lb && lbImg) { lbImg.src = img.src; lb.classList.add('show'); }
                 };
             });
-        } catch (e) {
-            console.warn('[fullRender]', e);
-        }
+        } catch (e) { console.warn('[fullRender]', e); }
     }
 
-    /* ---------- 流式渲染（节流，仅文本） ---------- */
-    /* 流式过程中只更新文本（避免反复 markdown 解析卡死） */
-    /* 完成后调用 fullRender 一次性渲染 markdown */
+    /* ---------- 流式渲染（仅文本） ---------- */
     function streamRender(bubElement, text) {
         if (!bubElement.classList.contains('streaming')) {
             bubElement.classList.add('streaming');
@@ -222,6 +194,18 @@ const UI = (function () {
         wrap.className = 'msg ' + msg.role;
         wrap.dataset.msgId = msg.id || '';
 
+        // ★ 勾选模式：头像旁加勾选框
+        if (opts.selectMode) {
+            const selBox = document.createElement('div');
+            selBox.className = 'msg-sel';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = opts.selectedMsgs && opts.selectedMsgs.includes(msg.id);
+            cb.onchange = () => { if (opts.onSelectToggle) opts.onSelectToggle(msg.id, cb.checked); };
+            selBox.appendChild(cb);
+            wrap.appendChild(selBox);
+        }
+
         const av = document.createElement('div');
         av.className = 'av';
         av.textContent = msg.role === 'user' ? '👤' : '🤖';
@@ -230,7 +214,6 @@ const UI = (function () {
         const m = document.createElement('div');
         m.className = 'm';
 
-        // 附件徽章（先占位，第三批实现）
         if (msg.attachments && msg.attachments.length) {
             const mf = document.createElement('div');
             mf.className = 'mf';
@@ -245,29 +228,22 @@ const UI = (function () {
 
         const bub = document.createElement('div');
         bub.className = 'bub';
-
         if (msg.role === 'assistant') {
-            if (msg._streaming) {
-                streamRender(bub, msg.content || '');
-            } else {
-                fullRender(bub, msg.content || '');
-            }
+            if (msg._streaming) { streamRender(bub, msg.content || ''); }
+            else { fullRender(bub, msg.content || ''); }
         } else {
             bub.textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
         }
         m.appendChild(bub);
 
-        // 底部操作栏
         const mm = document.createElement('div');
         mm.className = 'mm';
-
         if (msg._time) {
             const t = document.createElement('span');
             t.className = 'msg-time';
             t.textContent = msg._time;
             mm.appendChild(t);
         }
-
         if (msg.role === 'assistant' && msg.content) {
             const wc = cntW(msg.content);
             if (wc > 0) {
@@ -276,35 +252,25 @@ const UI = (function () {
                 mm.appendChild(w);
             }
         }
-
-        // 复制按钮
         const cpBtn = document.createElement('button');
         cpBtn.textContent = '📋 复制';
         cpBtn.onclick = () => {
             navigator.clipboard.writeText(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content))
-                .then(() => toast('已复制'))
-                .catch(() => toast('复制失败', 'er'));
+                .then(() => toast('已复制')).catch(() => toast('复制失败', 'er'));
         };
         mm.appendChild(cpBtn);
-
-        // 删除按钮
         if (opts.onDelete) {
             const dBtn = document.createElement('button');
             dBtn.textContent = '🗑️ 删除';
-            dBtn.onclick = () => {
-                if (confirm('删除这条消息？')) opts.onDelete(msg);
-            };
+            dBtn.onclick = () => { if (confirm('删除这条消息？')) opts.onDelete(msg); };
             mm.appendChild(dBtn);
         }
-
-        // 重新生成（仅 assistant）
         if (msg.role === 'assistant' && opts.onRegen) {
             const rBtn = document.createElement('button');
             rBtn.textContent = '🔄 重答';
             rBtn.onclick = () => opts.onRegen(msg);
             mm.appendChild(rBtn);
         }
-
         m.appendChild(mm);
         wrap.appendChild(m);
         return { wrap: wrap, bub: bub };
@@ -324,7 +290,6 @@ const UI = (function () {
             container.appendChild(node.wrap);
             lastBub = node.bub;
         });
-        // 滚动到底部
         container.scrollTop = container.scrollHeight;
         return lastBub;
     }
@@ -334,30 +299,31 @@ const UI = (function () {
         container.scrollTop = container.scrollHeight;
     });
 
-    /* ---------- 流式更新（节流到 50ms） ---------- */
+    /* ---------- 流式更新（节流50ms + 智能跟随） ---------- */
     function makeStreamUpdater(bub, container) {
         let lastUpdate = 0;
         let pending = '';
         let timer = null;
         const INTERVAL = 50;
-
+        const NEAR_BOTTOM = 80;   // ★ 距底部80px内算"贴近底部"
+        function isNearBottom() {
+            if (!container) return true;
+            return (container.scrollHeight - container.scrollTop - container.clientHeight) < NEAR_BOTTOM;
+        }
         function flush() {
             if (!pending) return;
+            const stick = isNearBottom();          // ★ 渲染前先看用户在不在底部
             streamRender(bub, pending);
-            scrollToBottom(container);
+            if (stick) scrollToBottom(container);  // ★ 只有原本贴底才跟随
             lastUpdate = Date.now();
             timer = null;
         }
-
         return function update(fullText) {
             pending = fullText;
             const now = Date.now();
             const elapsed = now - lastUpdate;
-            if (elapsed >= INTERVAL) {
-                flush();
-            } else if (!timer) {
-                timer = setTimeout(flush, INTERVAL - elapsed);
-            }
+            if (elapsed >= INTERVAL) { flush(); }
+            else if (!timer) { timer = setTimeout(flush, INTERVAL - elapsed); }
         };
     }
 
