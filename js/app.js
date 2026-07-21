@@ -1294,7 +1294,12 @@ async function initApp(){
         if(!S.currentChatId||!S.chats[S.currentChatId]){if(S.chatOrder.length&&S.chats[S.chatOrder[0]])S.currentChatId=S.chatOrder[0];else newChat();}
         renderAll();initUpload();initSnapshot();await initArchive();await initWorkflow();checkURLImport();maybePromptAuth();
         const u=Auth&&Auth.getUser?Auth.getUser():null;
+        // ★ admin 显示管理后台入口
+        if(typeof Auth!=='undefined'&&Auth.isAdmin()){
+            const ab=document.getElementById('adminEntryBtn');if(ab)ab.style.display='';
+        }
         toast('✅ 飞凡AI 就绪'+(u?'（'+(u.name||u.username)+'）':''));
+
     }catch(e){console.error('[InitApp]',e);toast('初始化失败：'+e.message,'er');}
 }
 
