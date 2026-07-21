@@ -53,18 +53,24 @@ const API = (function () {
     async function apiF(profile, path, options, key) {
         const opts = options || {};
         const url = '/api/' + path.replace(/^\//, '');
-        const headers = Object.assign(
-            { 'X-Target-Base': profile.base || '' },
-            buildAuthHeaders(profile, key || ''),
-            opts.headers || {}
-        );
-        // ★ 带上登录 token
+        const headers = Object.assign({}, opts.headers || {});
+        // ★ 公有引擎：只带 engineId，不带 Base/Key（后端持有）
+        if (profile.origin === 'public') {
+            headers['X-Engine-Id'] = profile.id;
+        } else {
+            // 私有引擎：带 Base + Key（透传）
+            headers['X-Target-Base'] = profile.base || '';
+            const authH = buildAuthHeaders(profile, key || '');
+            for (const k in authH) headers[k] = authH[k];
+        }
+        // ★ 登录 token
         if (typeof Auth !== 'undefined' && Auth.getToken()) {
             headers['X-Auth-Token'] = Auth.getToken();
         }
         if (!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
         return fetch(url, { method: opts.method || 'GET', headers: headers, body: opts.body, signal: opts.signal });
     }
+
 
 
     /* ---------- 参数报错中文化（来自版本1） ---------- */
