@@ -1,27 +1,27 @@
-/* ===== 飞凡AI - Service Worker (v2.7.0) ===== */
+/* ===== 飞凡AI - Service Worker (v3.0.0) ===== */
 /* 离线打开 + 静态资源缓存 */
 
-const CACHE_NAME = 'feifan-ai-v2.7.0';
+const CACHE_NAME = 'feifan-ai-v3.0.0';
 const PRECACHE = [
     './',
     './index.html',
-    './css/main.css?v=2.7.0',
-    './css/theme.css?v=2.7.0',
-    './js/utils.js?v=2.7.0',
-    './js/storage.js?v=2.7.0',
-    './js/api.js?v=2.7.0',
-    './js/ui.js?v=2.7.0',
-    './js/parser.js?v=2.7.0',
-    './js/upload.js?v=2.7.0',
-    './js/snapshot.js?v=2.7.0',
-    './js/archive.js?v=2.7.0',
-    './js/workflow.js?v=2.7.0',
-    './js/app.js?v=2.7.0',
-    './js/parsers/text.js?v=2.7.0',
-    './js/parsers/csv.js?v=2.7.0',
-    './js/parsers/office.js?v=2.7.0',
-    './js/parsers/pdf.js?v=2.7.0',
-    './js/chunker.js?v=2.7.0',
+    './css/main.css?v=3.0.0',
+    './css/theme.css?v=3.0.0',
+    './js/utils.js?v=3.0.0',
+    './js/storage.js?v=3.0.0',
+    './js/api.js?v=3.0.0',
+    './js/ui.js?v=3.0.0',
+    './js/parser.js?v=3.0.0',
+    './js/chunker.js?v=3.0.0',
+    './js/upload.js?v=3.0.0',
+    './js/snapshot.js?v=3.0.0',
+    './js/archive.js?v=3.0.0',
+    './js/workflow.js?v=3.0.0',
+    './js/app.js?v=3.0.0',
+    './js/parsers/text.js?v=3.0.0',
+    './js/parsers/csv.js?v=3.0.0',
+    './js/parsers/office.js?v=3.0.0',
+    './js/parsers/pdf.js?v=3.0.0',
     './manifest.json',
     './presets.json',
 ];
