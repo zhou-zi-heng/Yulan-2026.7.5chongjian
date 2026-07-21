@@ -1284,13 +1284,20 @@ function cpExp(){const ta=document.getElementById('expTA');if(!ta||!ta.value){to
 
 /* ===== 初始化 ===== */
 async function initApp(){
+    // ★ 登录闸门：先验登录，未登录只显示登录页
+    if(typeof Auth!=='undefined'){
+        const ok=await Auth.verify();
+        if(!ok){ Auth.showLoginPage(); return; }
+    }
     try{
         await DB.init();await DB.migrateFromLocalStorage();await DB.requestPersistent();await loadState();
         if(!S.currentChatId||!S.chats[S.currentChatId]){if(S.chatOrder.length&&S.chats[S.chatOrder[0]])S.currentChatId=S.chatOrder[0];else newChat();}
         renderAll();initUpload();initSnapshot();await initArchive();await initWorkflow();checkURLImport();maybePromptAuth();
-        toast('✅ 飞凡AI 就绪');
+        const u=Auth&&Auth.getUser?Auth.getUser():null;
+        toast('✅ 飞凡AI 就绪'+(u?'（'+(u.name||u.username)+'）':''));
     }catch(e){console.error('[InitApp]',e);toast('初始化失败：'+e.message,'er');}
 }
+
 function initUpload(){
     if(typeof Upload==='undefined')return;
     Upload.onFiles(handleUploadedFiles);
