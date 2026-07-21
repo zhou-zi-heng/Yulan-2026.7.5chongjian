@@ -94,7 +94,15 @@
         .login-err{color:#ef4444;font-size:12px;min-height:16px;margin-bottom:8px;text-align:left}
         .login-box button{width:100%;padding:13px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer}
         .login-box button:disabled{opacity:.6;cursor:not-allowed}
+        /* ★ 超管后台 */
+        .admin-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px}
+        .admin-tab{padding:7px 14px;border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:8px;cursor:pointer;font-size:13px}
+        .admin-tab.act{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border-color:transparent;font-weight:600}
+        .admin-body{min-height:300px}
+        .admin-placeholder{text-align:center;color:var(--text2);padding:60px 20px;font-size:16px;line-height:2}
+        .admin-placeholder span{font-size:12px;opacity:.7}
 
+        
     </style>
 </head>
 <body>
@@ -115,7 +123,11 @@
             <div class="sl">💬 对话</div><ul class="cl" id="chatList"></ul>
             <div class="sl" id="arcLbl" style="display:none">📦 归档</div><ul class="cl" id="arcList"></ul>
         </div>
-        <div class="sb-ft"><button class="btn btn-b btn-s" onclick="openM('snap')">📦 快照迁移</button></div>
+        <div class="sb-ft">
+            <button class="btn btn-b btn-s" onclick="openM('snap')">📦 快照迁移</button>
+            <button class="btn btn-b btn-s" id="adminEntryBtn" onclick="Admin.open()" style="display:none;margin-top:6px">👑 管理后台</button>
+        </div>
+
     </aside>
 
     <div class="main">
@@ -268,6 +280,18 @@
     <button onclick="closeAuthModal()" style="width:100%;padding:10px;margin-top:10px;font-size:13px;color:var(--text2);background:transparent;border:none;cursor:pointer">稍后再说</button>
 </div></div></div>
 
+<!-- 模态框：超管后台 -->
+<div class="mo" id="mo-admin"><div class="md" style="max-width:900px;max-height:90vh"><div class="md-h"><h2>👑 超级管理后台</h2><button class="md-x" onclick="Admin.close()">×</button></div><div class="md-b">
+    <div class="admin-tabs" id="adminTabs">
+        <button class="admin-tab act" data-tab="users" onclick="Admin.switchTab('users')">👥 账号</button>
+        <button class="admin-tab" data-tab="engines" onclick="Admin.switchTab('engines')">🔌 引擎</button>
+        <button class="admin-tab" data-tab="presets" onclick="Admin.switchTab('presets')">📋 预设</button>
+        <button class="admin-tab" data-tab="monitor" onclick="Admin.switchTab('monitor')">📊 监视</button>
+        <button class="admin-tab" data-tab="config" onclick="Admin.switchTab('config')">⚙️ 全局</button>
+    </div>
+    <div class="admin-body" id="adminBody"></div>
+</div></div></div>
+
 <div class="lightbox" id="lightbox" onclick="this.classList.remove('show')"><img id="lbImg" src=""></div>
 <div class="tc" id="tc"></div>
 
@@ -286,6 +310,7 @@
 <script src="js/archive.js?v=3.0.0"></script>
 <script src="js/workflow.js?v=3.0.0"></script>
 <script src="js/auth.js?v=3.0.0"></script>
+<script src="js/admin.js?v=3.0.0"></script>
 <script src="js/app.js?v=3.0.0"></script>
 
 </body>
