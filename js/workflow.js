@@ -37,16 +37,14 @@ const Workflow = (function () {
     }
 
     async function load(url){
-        // ★ 优先从后端D1读预设，读不到再回退 presets.json
         try{
             const token=(typeof Auth!=='undefined'&&Auth.getToken)?Auth.getToken():'';
             if(token){
                 const resp=await fetch('/api/presets',{headers:{'X-Auth-Token':token}});
                 const data=await resp.json();
-                if(data.ok&&data.presets){_data=data.presets;_loaded=true;console.log('[Workflow] 已从D1加载预设');return true;}
+                if(data.ok&&data.presets){_data=data.presets;_loaded=true;_decCache={};console.log('[Workflow] 已从D1加载预设');return true;}
             }
         }catch(e){console.warn('[Workflow] D1预设读取失败，回退presets.json',e);}
-        // 回退 presets.json
         try{
             const resp=await fetch((url||'presets.json')+'?t='+Date.now());
             if(!resp.ok)throw new Error('HTTP '+resp.status);
@@ -55,6 +53,7 @@ const Workflow = (function () {
             return true;
         }catch(e){console.warn('[Workflow] 加载失败',e);_loaded=false;return false;}
     }
+
 
     function isLoaded(){return _loaded&&_data&&Array.isArray(_data.presets);}
     function getGroups(){return isLoaded()&&Array.isArray(_data.groups)?_data.groups.slice():[];}
@@ -195,6 +194,23 @@ const Workflow = (function () {
         console.log('[Workflow] 已从后台重新加载预设');
         return true;
     }
+    /* ★ 批次3：供超管后台用 */
+    function getRawData(){return _data;}
+    async function encrypt(plain){
+        if(!plain)return '';
+        if(!SUPPORTS_CRYPTO)return '__PLAIN__'+plain;
+        const enc=new TextEncoder();
+        const salt=crypto.getRandomValues(new Uint8Array(16));
+        const iv=crypto.getRandomValues(new Uint8Array(12));
+        const base=await crypto.subtle.importKey('raw',enc.encode(WORKFLOW_SECRET),{name:'PBKDF2'},false,['deriveKey']);
+        const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:PBKDF2_ITER,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt']);
+        const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(plain));
+        const b=(buf)=>btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const payload={s:b(salt),i:b(iv),c:b(cipher)};
+        return 'WFX1:'+btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    }
+    async function decrypt(str){return await _decrypt(str);}
+    async function reload(data){_data=data;_loaded=true;_decCache={};console.log('[Workflow] 已从后台重新加载预设');return true;}
 
     return {
         load, isLoaded, getGroups, getPresets, getPreset, getSteps, getStep,
@@ -202,6 +218,7 @@ const Workflow = (function () {
         checkSensitive, isLeak, similarity, similarityToLast, sendAlert, getSecurity,
         getRawData, encrypt, decrypt, reload,
     };
+
 
 })();
 
