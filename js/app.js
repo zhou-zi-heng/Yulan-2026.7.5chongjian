@@ -26,9 +26,9 @@ async function loadState(){
     if(!S._engineMigrated){const kept={};for(const id in S.profiles){const p=S.profiles[id];if(p.origin==='private'&&p.key)kept[id]=p;}S.profiles=kept;S._engineMigrated=true;}
     if(!S.profiles||typeof S.profiles!=='object')S.profiles={};
     fixProfileFields();
-    if(S.theme==='dark'){document.documentElement.setAttribute('data-theme','dark');const tb=document.getElementById('themeBtn');if(tb){const ic=tb.querySelector('.hi');if(ic)ic.textContent='☀️';}
-
+    if(S.theme==='dark'){document.documentElement.setAttribute('data-theme','dark');const tb=document.getElementById('themeBtn');if(tb){const ic=tb.querySelector('.hi');if(ic)ic.textContent='☀️';}}
 }
+
 function fixProfileFields(){for(const id in S.profiles){const p=S.profiles[id];if(p.useTemp===undefined)p.useTemp=false;if(p.useMax===undefined)p.useMax=false;if(p.useTopP===undefined)p.useTopP=false;if(p.useFreq===undefined)p.useFreq=false;if(p.temperature===undefined)p.temperature=0.7;if(p.max_tokens===undefined)p.max_tokens=4096;if(p.top_p===undefined)p.top_p=1;if(p.frequency_penalty===undefined)p.frequency_penalty=0;if(p.protocol===undefined)p.protocol='openai';if(p.engineType===undefined)p.engineType='chat';p.authType='bearer';p.origin='private';if(p.useCache===undefined)p.useCache=false;p.cacheTTL=(p.protocol==='anthropic')?'1h':'5m';if(p.priceIn===undefined)p.priceIn=0;if(p.priceOut===undefined)p.priceOut=0;if(p.priceCacheRead===undefined)p.priceCacheRead=0;if(p.priceCacheWrite===undefined)p.priceCacheWrite=0;}}
 
 function allEngines(){const list=[];_publicEngines.forEach(e=>list.push(e));Object.values(S.profiles).forEach(p=>list.push(p));return list;}
