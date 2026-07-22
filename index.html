@@ -153,6 +153,17 @@
         .pstep.open .pstep-body{display:block}
         .pstep.open .pstep-caret{color:var(--pri)}
         @media(max-width:768px){.preset-layout{flex-direction:column;height:auto}.preset-left{width:100%;max-height:200px}}
+        /* ★ 顶栏图标+文字 */
+        .hdr-acts button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 6px;line-height:1.1}
+        .hdr-acts button .hi{font-size:15px}
+        .hdr-acts button .ht{font-size:9px;color:var(--text2)}
+        .hdr-acts button:hover .ht{color:var(--pri)}
+        /* 移动端只显示图标 */
+        @media(max-width:768px){
+            .hdr-acts button .ht{display:none}
+            .hdr-acts button{padding:6px}
+            .hdr-acts button .hi{font-size:16px}
+        }
 
         
     </style>
@@ -191,17 +202,17 @@
                 <button id="modeWfBtn" onclick="setMode('workflow')">🔧 工作流</button>
             </div>
             <div class="hdr-acts">
-                <button onclick="openM('cs')" title="会话设置">🎛️</button>
-                <button onclick="toggleChunk()" id="chunkBtn" title="物理打标（关）">📐</button>
-                <button onclick="toggleRefSelectMode()" id="refSelBtn" title="勾选消息加入参考框">☑</button>
-                <button onclick="previewSend()" title="预览本轮发送内容">📤</button>
-                <button onclick="openM('exp')" title="导出">📥</button>
-                <button onclick="shareC()" title="加密分享">🔗</button>
-                <button onclick="pinC()" title="置顶" id="pinBtn">📌</button>
-                <button onclick="arcC()" title="归档">📦</button>
-                <button onclick="clrC()" title="清空">🗑️</button>
-                <button onclick="togTheme()" title="切换主题" id="themeBtn">🌙</button>
+                <button onclick="openM('cs')" title="会话设置"><span class="hi">🎛️</span><span class="ht">设置</span></button>
+                <button onclick="toggleChunk()" id="chunkBtn" title="物理打标"><span class="hi">📐</span><span class="ht">打标</span></button>
+                <button onclick="toggleRefSelectMode()" id="refSelBtn" title="勾选消息加入参考框"><span class="hi">☑</span><span class="ht">选取</span></button>
+                <button onclick="previewSend()" title="预览本轮发送内容"><span class="hi">👀</span><span class="ht">预览</span></button>
+                <button onclick="openM('exp')" title="导出"><span class="hi">📥</span><span class="ht">导出</span></button>
+                <button onclick="shareC()" title="加密分享"><span class="hi">🔗</span><span class="ht">分享</span></button>
+                <button onclick="pinC()" title="置顶" id="pinBtn"><span class="hi">📌</span><span class="ht">置顶</span></button>
+                <button onclick="clrC()" title="清空"><span class="hi">🗑️</span><span class="ht">清空</span></button>
+                <button onclick="togTheme()" title="切换主题" id="themeBtn"><span class="hi">🌙</span><span class="ht">主题</span></button>
             </div>
+
         </header>
 
         <!-- ★ 参考框横条 -->
