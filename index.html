@@ -63,17 +63,18 @@
         .wf-att-cont input[type="checkbox"]{width:14px;height:14px;accent-color:var(--pri)}
         .wf-att-tip{font-size:10px;color:var(--text2);margin-top:4px;line-height:1.5}
 
-        /* ★ 参考框横条 */
-        .ref-bar{display:none;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--pri-l);flex-shrink:0;overflow-x:auto;white-space:nowrap}
-        .ref-bar-label{font-size:11px;color:var(--pri);font-weight:600;flex-shrink:0}
-        .ref-list{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+        /* ★ 参考框横条（支持换行，最多3行） */
+        .ref-bar{display:none;align-items:flex-start;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--pri-l);flex-shrink:0}
+        .ref-bar-label{font-size:11px;color:var(--pri);font-weight:600;flex-shrink:0;padding-top:3px}
+        .ref-list{display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-height:96px;overflow-y:auto;flex:1}
         .ref-item{display:inline-flex;align-items:center;gap:3px;padding:2px 6px;background:var(--card);border:1px solid var(--border);border-radius:6px;font-size:12px;flex-shrink:0}
         .ref-item.ref-checked{border-color:var(--pri);background:var(--pri-l)}
         .ref-cb{width:13px;height:13px;accent-color:var(--pri);cursor:pointer}
-        .ref-name{color:var(--text);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+        .ref-name{color:var(--text);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .ref-btn{border:none;background:none;cursor:pointer;font-size:12px;color:var(--text2);padding:0 2px}
         .ref-btn:hover{color:var(--pri)}
         .ref-rm:hover{color:var(--err)}
+
 
         /* ★ 消息勾选框 */
         .msg-sel{display:flex;align-items:flex-start;padding-top:4px;flex-shrink:0}
