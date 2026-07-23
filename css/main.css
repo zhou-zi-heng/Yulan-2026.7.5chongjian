@@ -474,4 +474,31 @@ body{
 .folder-cl{padding-left:12px}
 .folder.collapsed .folder-cl{display:none}
 @media(hover:none){.folder-hdr .fd-acts{display:flex}}
+/* ===== 表格导出按钮 ===== */
+.table-wrap{
+    position:relative;
+    margin:8px 0;
+    overflow-x:auto;
+}
+.table-wrap table{
+    margin-top:32px;
+}
+.table-export-btn{
+    position:absolute;
+    top:2px;
+    left:0;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:5px;
+    padding:3px 10px;
+    font-size:11px;
+    cursor:pointer;
+    color:var(--text2);
+    transition:all .15s;
+    z-index:1;
+}
+.table-export-btn:hover{
+    color:var(--pri);
+    border-color:var(--pri);
+}
 
