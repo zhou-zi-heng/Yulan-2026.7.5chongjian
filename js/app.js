@@ -419,6 +419,35 @@ async function coreSendImage(prompt) {
     const profile = curProfile();
     if (!profile) { toast('无可用引擎', 'er'); return; }
 
+    // ===== 从描述词自动解析生图参数（比例 / 画质 / 格式）=====
+    const lower = (prompt || '').toLowerCase();
+
+    // 比例 → size（gpt-image 支持：1024x1024 / 1536x1024 / 1024x1536）
+    let size = '1536x1024'; // 默认横图
+    if (/(9\s*[:：]\s*16)|竖屏|竖向|竖图|竖版|portrait/.test(lower)) {
+        size = '1024x1536';
+    } else if (/(1\s*[:：]\s*1)|方形|方图|正方|square/.test(lower)) {
+        size = '1024x1024';
+    } else if (/(16\s*[:：]\s*9)|横屏|横向|横图|横版|宽屏|landscape/.test(lower)) {
+        size = '1536x1024';
+    }
+
+    // 画质 → quality（不写则不传，用平台默认）
+    let quality = '';
+    if (/高清|精细|超清|hd|high/.test(lower)) {
+        quality = 'high';
+    } else if (/草图|低质|快速|low/.test(lower)) {
+        quality = 'low';
+    }
+
+    // 格式 → output_format（默认 png）
+    let outFormat = 'png';
+    if (/webp/.test(lower)) {
+        outFormat = 'webp';
+    } else if (/jpe?g/.test(lower)) {
+        outFormat = 'jpeg';
+    }
+
     // 收集参考图：参考框里勾选的图片 + 本轮上传的图片（有图=改图，无图=文生图）
     const refImgs = [];
     sortedRefPool().forEach(r => {
@@ -479,11 +508,16 @@ async function coreSendImage(prompt) {
     const area = document.getElementById('msgsArea');
     const lastMsgEl = area.querySelector('.msg:last-child .bub');
 
-    _streamCtrl = API.generateImage(profile, prompt, {
-        size: '1024x1024',
+    // 组装生图参数
+    const genOpts = {
+        size: size,
         n: 1,
         images: refImgs,
-    }, {
+        output_format: outFormat,
+    };
+    if (quality) genOpts.quality = quality;
+
+    _streamCtrl = API.generateImage(profile, prompt, genOpts, {
         onStart: () => {},
         onImage: async (imgs) => {
             const md = imgs.map((u, i) => '![生成图片' + (i + 1) + '](' + u + ')').join('\n\n');
@@ -512,6 +546,7 @@ async function coreSendImage(prompt) {
         },
     });
 }
+
 
 async function regenerate(msg){const c=curChat();if(!c)return;const idx=c.messages.indexOf(msg);if(idx<1)return;const prev=c.messages[idx-1];if(prev.role!=='user'){toast('无法找到对应的提问','er');return;}const actual=prev._actual||(typeof prev.content==='string'?prev.content:'');const visible=typeof prev.content==='string'?prev.content:'';c.messages.splice(idx,1);c.messages.splice(idx-1,1);await saveNow();renderMs();await coreSend({visibleText:visible,actualText:actual,titleHint:visible});}
 
