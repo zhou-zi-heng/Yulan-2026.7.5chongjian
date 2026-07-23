@@ -166,34 +166,250 @@ function copyChunkPreview(){const ta=document.getElementById('chunkPreviewTA');i
 function previewSend(){const c=curChat();if(!c){toast('无对话','er');return;}let out='',sys='';if(c.systemPrompt&&c.systemPrompt.trim())sys+=c.systemPrompt.trim();let kbText='';if(c.knowledgeBase&&c.knowledgeBase.length){c.knowledgeBase.forEach(k=>{if(k.text)kbText+='\n[知识库]'+k.name+'（'+cntW(k.text)+'字）';});}if(kbText)sys+='\n【知识库资料】'+kbText;out+='━━━ SYSTEM ━━━\n'+(sys||'（空）')+'\n\n';let ref='';sortedRefPool().forEach(r=>{if(!r.checked)return;if(r.kind==='file'&&r.type==='image'){ref+='\n[图片] '+r.name;return;}if(!r.text)return;let body=r.text;if(r.kind==='file'&&_attChunk&&typeof Chunker!=='undefined')body=Chunker.chunk(r.text,{}).marked;ref+='\n=== '+(r.kind==='file'?'📎'+r.name:'💬'+r.name)+' ===\n'+body+'\n';});out+='━━━ 参考框（勾选项，文件在前）━━━\n'+(ref||'（无勾选项）')+'\n\n';const inpVal=(document.getElementById('uIn')?document.getElementById('uIn').value:'')||'（输入框当前为空）';out+='━━━ 本轮问题 ━━━\n'+inpVal+'\n\n━━━ 说明 ━━━\n实际发送还含历史对话。工作流隐藏指令不展示。';const ta=document.getElementById('chunkPreviewTA');if(ta)ta.value=out;const h=document.querySelector('#mo-chunk-preview .md-h h2');if(h)h.textContent='📤 发送内容预览';openM('chunk-preview');}
 
 /* ===== 核心发送 ===== */
-async function coreSend(opts){
-    opts=opts||{};let c=curChat();if(!c){newChat();c=curChat();}
-    const engId=opts.forceEngId||S.currentEngId;const profile=getEngineById(engId);
-    if(!profile){toast('无可用引擎，请联系管理员','er');openM('set');return;}
-    if(!profile.model){toast('请先在 ⚙️ 选择模型（点获取选择）','er');openM('set');return;}
-    const visibleText=opts.visibleText,actualText=opts.actualText;const attsForUser=opts.atts||[];
-    let processedAtts=attsForUser;if(_attChunk&&typeof Chunker!=='undefined')processedAtts=Chunker.chunkAttachments(attsForUser,{});
-    let attachedText='';const imageAtts=[];processedAtts.forEach(a=>{if(a.type==='image')imageAtts.push(a);else if(a.text)attachedText+='\n\n=== 📎 附件：'+a.fileName+' ===\n'+a.text+'\n=== 附件结束 ===\n';});
-    let kbText='';const kbImages=[];if(c.knowledgeBase&&c.knowledgeBase.length){c.knowledgeBase.forEach(k=>{if(k.type==='image')kbImages.push({fileName:k.name,dataUrl:k.dataUrl,type:'image'});else if(k.text){let body=k.text;if(_attChunk&&typeof Chunker!=='undefined')body=Chunker.chunk(k.text,{}).marked;kbText+='\n\n=== 📚 知识库：'+k.name+' ===\n'+body+'\n=== 知识库结束 ===\n';}});}
-    // ★ 参考框：按排序（文件在前）遍历，保证前缀稳定
-    let refText='';const refImages=[];sortedRefPool().forEach(r=>{if(!r.checked)return;if(r.kind==='file'&&r.type==='image'&&r.dataUrl){refImages.push(r);return;}if(!r.text)return;let body=r.text;if(r.kind==='file'&&_attChunk&&typeof Chunker!=='undefined')body=Chunker.chunk(r.text,{}).marked;const tag=r.kind==='file'?'📎参考文件：'+r.name:'💬参考片段·'+r.name;refText+='\n\n=== '+tag+' ===\n'+body+'\n=== 结束 ===\n';});
-    const composedUserText=(attachedText?attachedText+'\n':'')+actualText;
-    const userMsg={id:gId(),role:'user',content:visibleText,_actual:actualText,attachments:attsForUser.map(a=>({name:a.fileName,type:a.type,ext:a.meta&&a.meta.ext})),_time:nowTime()};c.messages.push(userMsg);
-    const aiMsg={id:gId(),role:'assistant',content:'',_streaming:true,_time:nowTime(),_engId:engId,_model:profile.model};c.messages.push(aiMsg);
-    if(!c.modeLocked){if(!c.mode)c.mode=(S.uiMode==='workflow')?'workflow':'free';c.modeLocked=true;c.title=buildTitleWithSuffix(c.title,c.mode);}
-    const bareTitle=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();if((bareTitle===''||bareTitle==='新对话')&&c.messages.length<=2)c.title=buildTitleWithSuffix((opts.titleHint||visibleText||'新对话').slice(0,24),chatMode(c));
-    c.updatedAt=Date.now();renderMs();renderSB();renderMode();
-    const sendMsgs=[];let systemContent='';if(c.systemPrompt&&c.systemPrompt.trim())systemContent+=c.systemPrompt.trim();if(kbText)systemContent+=(systemContent?'\n\n':'')+'【以下是持续参考的知识库资料，请在回答时参考】'+kbText;if(systemContent)sendMsgs.push({role:'system',content:systemContent});
-    if(refText||refImages.length){const refParts=[];if(refText)refParts.push({type:'text',text:'【以下是我提供的参考资料，请在回答时依据它】'+refText});refImages.forEach(im=>refParts.push({type:'image_url',image_url:{url:im.dataUrl}}));sendMsgs.push({role:'user',content:refParts.length===1&&refParts[0].type==='text'?refParts[0].text:refParts});sendMsgs.push({role:'assistant',content:'已收到你提供的参考资料，我会在回答中依据它。'});}
-    if(kbImages.length){const kbParts=[{type:'text',text:'【以下是持续参考的知识库图片】'}];kbImages.forEach(im=>kbParts.push({type:'image_url',image_url:{url:im.dataUrl}}));sendMsgs.push({role:'user',content:kbParts});sendMsgs.push({role:'assistant',content:'已收到知识库图片。'});}
-    c.messages.forEach((m)=>{if(m===aiMsg)return;if(m._interrupted&&!m.content)return;if(m===userMsg){if(imageAtts.length){const parts=[];if(composedUserText)parts.push({type:'text',text:composedUserText});imageAtts.forEach(im=>parts.push({type:'image_url',image_url:{url:im.dataUrl}}));sendMsgs.push({role:'user',content:parts});}else sendMsgs.push({role:'user',content:composedUserText||visibleText});}else sendMsgs.push({role:m.role,content:m._actual||m.content});});
-    await saveNow();const sendBtn=document.getElementById('sendBtn');sendBtn.classList.add('stop');sendBtn.textContent='■';const area=document.getElementById('msgsArea');const lastMsgEl=area.querySelector('.msg:last-child .bub');if(!lastMsgEl)return;const updater=UI.makeStreamUpdater(lastMsgEl,area);let lastSaveTime=Date.now();const SAVE_INTERVAL=3000;
-    _streamCtrl=API.streamChat(profile,sendMsgs,{onStart:()=>{},onDelta:(d,full)=>{aiMsg.content=full;updater(full);if(Date.now()-lastSaveTime>SAVE_INTERVAL){lastSaveTime=Date.now();scheduleSave();}},
-        onDone:async(full,usage)=>{let finalText=full;if(opts._wfLeakCheck&&typeof Workflow!=='undefined'&&Workflow.isLeak(full)){const masked='\u2588'.repeat(Math.min(Math.max(full.length,20),200));finalText='⚠️ 检测到尝试获取受保护内容，本次输出已被屏蔽。\n\n'+masked;const ctx=_wfAlertCtx||{};const cc=curChat();const reply20=String(full).replace(/\s+/g,'').slice(0,20);fireAlert('🚨 输出乱码警报\n用户：'+(ctx.user||'未署名')+'\n对话：《'+((cc&&cc.title)||'未命名')+'》\n预设：'+(ctx.preset||'-')+'\n步骤：'+(ctx.step||'-')+'\n他此前输入：'+(ctx.input||'-')+'\nAI回复前20字：'+reply20+'\n相似度：'+Workflow.similarityToLast(full)+'%\n时间：'+new Date().toLocaleString());}aiMsg.content=finalText;aiMsg._streaming=false;if(usage)aiMsg._usage=usage;c.updatedAt=Date.now();_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,finalText);await saveNow();renderMs();renderSB();reportLog(c,profile,usage);if(typeof Archive!=='undefined')Archive.notifyActivity();},
-        onAbort:async(full,usage)=>{aiMsg.content=full;aiMsg._streaming=false;aiMsg._interrupted=true;if(usage)aiMsg._usage=usage;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,full||'_（已中断）_');await saveNow();renderMs();toast('已停止');if(typeof Archive!=='undefined')Archive.notifyActivity();},
-        onError:async(err)=>{aiMsg.content=(aiMsg.content||'')+'\n\n❌ **错误**：'+err.message;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';UI.fullRender(lastMsgEl,aiMsg.content);await saveNow();toast('请求失败：'+err.message,'er');},
+async function coreSend(opts) {
+    opts = opts || {};
+
+    let c = curChat();
+    if (!c) { newChat(); c = curChat(); }
+
+    const engId = opts.forceEngId || S.currentEngId;
+    const profile = getEngineById(engId);
+
+    if (!profile) {
+        toast('无可用引擎，请联系管理员', 'er');
+        openM('set');
+        return;
+    }
+    if (!profile.model) {
+        toast('请先在 ⚙️ 选择模型（点获取选择）', 'er');
+        openM('set');
+        return;
+    }
+
+    const visibleText = opts.visibleText;
+    const actualText = opts.actualText;
+    const attsForUser = opts.atts || [];
+
+    // 本轮上传的附件（可选物理打标）
+    let processedAtts = attsForUser;
+    if (_attChunk && typeof Chunker !== 'undefined') {
+        processedAtts = Chunker.chunkAttachments(attsForUser, {});
+    }
+
+    // 本轮附件：文本拼进正文，图片单独收集
+    let attachedText = '';
+    const imageAtts = [];
+    processedAtts.forEach(a => {
+        if (a.type === 'image') {
+            imageAtts.push(a);
+        } else if (a.text) {
+            attachedText += '\n\n=== 📎 附件：' + a.fileName + ' ===\n' + a.text + '\n=== 附件结束 ===\n';
+        }
+    });
+
+    // 知识库：文本进 system，图片单独收集
+    let kbText = '';
+    const kbImages = [];
+    if (c.knowledgeBase && c.knowledgeBase.length) {
+        c.knowledgeBase.forEach(k => {
+            if (k.type === 'image') {
+                kbImages.push({ fileName: k.name, dataUrl: k.dataUrl, type: 'image' });
+            } else if (k.text) {
+                let body = k.text;
+                if (_attChunk && typeof Chunker !== 'undefined') body = Chunker.chunk(k.text, {}).marked;
+                kbText += '\n\n=== 📚 知识库：' + k.name + ' ===\n' + body + '\n=== 知识库结束 ===\n';
+            }
+        });
+    }
+
+    // 参考框：按排序（文件在前）遍历，文本和图片分开收集
+    let refText = '';
+    const refImages = [];
+    sortedRefPool().forEach(r => {
+        if (!r.checked) return;
+        if (r.kind === 'file' && r.type === 'image' && r.dataUrl) {
+            refImages.push(r);
+            return;
+        }
+        if (!r.text) return;
+        let body = r.text;
+        if (r.kind === 'file' && _attChunk && typeof Chunker !== 'undefined') body = Chunker.chunk(r.text, {}).marked;
+        const tag = r.kind === 'file' ? '📎参考文件：' + r.name : '💬参考片段·' + r.name;
+        refText += '\n\n=== ' + tag + ' ===\n' + body + '\n=== 结束 ===\n';
+    });
+
+    const composedUserText = (attachedText ? attachedText + '\n' : '') + actualText;
+
+    // 落消息：用户可见消息 + AI占位消息
+    const userMsg = {
+        id: gId(),
+        role: 'user',
+        content: visibleText,
+        _actual: actualText,
+        attachments: attsForUser.map(a => ({ name: a.fileName, type: a.type, ext: a.meta && a.meta.ext })),
+        _time: nowTime()
+    };
+    c.messages.push(userMsg);
+
+    const aiMsg = {
+        id: gId(),
+        role: 'assistant',
+        content: '',
+        _streaming: true,
+        _time: nowTime(),
+        _engId: engId,
+        _model: profile.model
+    };
+    c.messages.push(aiMsg);
+
+    // 模式锁定 + 标题
+    if (!c.modeLocked) {
+        if (!c.mode) c.mode = (S.uiMode === 'workflow') ? 'workflow' : 'free';
+        c.modeLocked = true;
+        c.title = buildTitleWithSuffix(c.title, c.mode);
+    }
+    const bareTitle = (c.title || '').replace(/-自由$/, '').replace(/-工作流$/, '').trim();
+    if ((bareTitle === '' || bareTitle === '新对话') && c.messages.length <= 2) {
+        c.title = buildTitleWithSuffix((opts.titleHint || visibleText || '新对话').slice(0, 24), chatMode(c));
+    }
+
+    c.updatedAt = Date.now();
+    renderMs();
+    renderSB();
+    renderMode();
+
+    // ========== 组装发送消息 ==========
+    const sendMsgs = [];
+
+    // ① system：系统提示 + 知识库文本
+    let systemContent = '';
+    if (c.systemPrompt && c.systemPrompt.trim()) systemContent += c.systemPrompt.trim();
+    if (kbText) systemContent += (systemContent ? '\n\n' : '') + '【以下是持续参考的知识库资料，请在回答时参考】' + kbText;
+    if (systemContent) sendMsgs.push({ role: 'system', content: systemContent });
+
+    // ② 文本参考块（只放文本，稳定，缓存命中）
+    if (refText) {
+        sendMsgs.push({ role: 'user', content: '【以下是我提供的参考资料，请在回答时依据它】' + refText });
+        sendMsgs.push({ role: 'assistant', content: '已收到你提供的参考资料，我会在回答中依据它。' });
+    }
+
+    // ③ 图片参考块（只放图片，经常变动，放在文本块之后，变了也不连累文本缓存）
+    if (refImages.length) {
+        const refImgParts = [{ type: 'text', text: '【以下是我提供的参考图片，请在回答时依据它】' }];
+        refImages.forEach(im => refImgParts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
+        sendMsgs.push({ role: 'user', content: refImgParts });
+        sendMsgs.push({ role: 'assistant', content: '已收到你提供的参考图片，我会在回答中依据它。' });
+    }
+
+    // ④ 知识库图片块
+    if (kbImages.length) {
+        const kbParts = [{ type: 'text', text: '【以下是持续参考的知识库图片】' }];
+        kbImages.forEach(im => kbParts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
+        sendMsgs.push({ role: 'user', content: kbParts });
+        sendMsgs.push({ role: 'assistant', content: '已收到知识库图片。' });
+    }
+
+    // ⑤ 历史对话 + 本轮问题
+    c.messages.forEach((m) => {
+        if (m === aiMsg) return;
+        if (m._interrupted && !m.content) return;
+        if (m === userMsg) {
+            if (imageAtts.length) {
+                const parts = [];
+                if (composedUserText) parts.push({ type: 'text', text: composedUserText });
+                imageAtts.forEach(im => parts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
+                sendMsgs.push({ role: 'user', content: parts });
+            } else {
+                sendMsgs.push({ role: 'user', content: composedUserText || visibleText });
+            }
+        } else {
+            sendMsgs.push({ role: m.role, content: m._actual || m.content });
+        }
+    });
+
+    await saveNow();
+
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.classList.add('stop');
+    sendBtn.textContent = '■';
+
+    const area = document.getElementById('msgsArea');
+    const lastMsgEl = area.querySelector('.msg:last-child .bub');
+    if (!lastMsgEl) return;
+
+    const updater = UI.makeStreamUpdater(lastMsgEl, area);
+    let lastSaveTime = Date.now();
+    const SAVE_INTERVAL = 3000;
+
+    _streamCtrl = API.streamChat(profile, sendMsgs, {
+        onStart: () => {},
+        onDelta: (d, full) => {
+            aiMsg.content = full;
+            updater(full);
+            if (Date.now() - lastSaveTime > SAVE_INTERVAL) {
+                lastSaveTime = Date.now();
+                scheduleSave();
+            }
+        },
+        onDone: async (full, usage) => {
+            let finalText = full;
+            if (opts._wfLeakCheck && typeof Workflow !== 'undefined' && Workflow.isLeak(full)) {
+                const masked = '\u2588'.repeat(Math.min(Math.max(full.length, 20), 200));
+                finalText = '⚠️ 检测到尝试获取受保护内容，本次输出已被屏蔽。\n\n' + masked;
+                const ctx = _wfAlertCtx || {};
+                const cc = curChat();
+                const reply20 = String(full).replace(/\s+/g, '').slice(0, 20);
+                fireAlert('🚨 输出乱码警报\n用户：' + (ctx.user || '未署名') +
+                    '\n对话：《' + ((cc && cc.title) || '未命名') + '》' +
+                    '\n预设：' + (ctx.preset || '-') +
+                    '\n步骤：' + (ctx.step || '-') +
+                    '\n他此前输入：' + (ctx.input || '-') +
+                    '\nAI回复前20字：' + reply20 +
+                    '\n相似度：' + Workflow.similarityToLast(full) + '%' +
+                    '\n时间：' + new Date().toLocaleString());
+            }
+            aiMsg.content = finalText;
+            aiMsg._streaming = false;
+            if (usage) aiMsg._usage = usage;
+            c.updatedAt = Date.now();
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            UI.fullRender(lastMsgEl, finalText);
+            await saveNow();
+            renderMs();
+            renderSB();
+            reportLog(c, profile, usage);
+            if (typeof Archive !== 'undefined') Archive.notifyActivity();
+        },
+        onAbort: async (full, usage) => {
+            aiMsg.content = full;
+            aiMsg._streaming = false;
+            aiMsg._interrupted = true;
+            if (usage) aiMsg._usage = usage;
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            UI.fullRender(lastMsgEl, full || '_（已中断）_');
+            await saveNow();
+            renderMs();
+            toast('已停止');
+            if (typeof Archive !== 'undefined') Archive.notifyActivity();
+        },
+        onError: async (err) => {
+            aiMsg.content = (aiMsg.content || '') + '\n\n❌ **错误**：' + err.message;
+            aiMsg._streaming = false;
+            aiMsg._interrupted = true;
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            UI.fullRender(lastMsgEl, aiMsg.content);
+            await saveNow();
+            toast('请求失败：' + err.message, 'er');
+        },
     });
 }
+
 function reportLog(chat,profile,usage){try{const rounds=Math.floor((chat.messages||[]).filter(m=>m.role==='assistant').length);const tokens=usage?((usage.inputTokens||0)+(usage.outputTokens||0)):0;const token=Auth&&Auth.getToken?Auth.getToken():'';fetch('/api/log',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':token},body:JSON.stringify({chatName:chat.title||'',rounds,tokens,model:(profile&&profile.model)||''})}).catch(()=>{});}catch(e){}}
 async function send(){if(_streamCtrl){_streamCtrl.abort();return;}const inp=document.getElementById('uIn');const text=(inp.value||'').trim();if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}const c=curChat();if(c&&chatMode(c)==='workflow'){if(text&&guardSensitive(text,'工作流·自由输入'))return;}const profile=curProfile();if(profile&&profile.engineType==='image'){if(!text){toast('请输入图片描述','er');return;}inp.value='';aRsz(inp);await coreSendImage(text);return;}const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';const attsForUser=_pendingAtts.slice();inp.value='';aRsz(inp);_pendingAtts=[];renderAttList();await coreSend({visibleText:userVisibleText,actualText:text,atts:attsForUser,titleHint:text});}
 async function coreSendImage(prompt){let c=curChat();if(!c){newChat();c=curChat();}const profile=curProfile();if(!profile){toast('无可用引擎','er');return;}const userMsg={id:gId(),role:'user',content:prompt,_actual:prompt,_time:nowTime()};c.messages.push(userMsg);const aiMsg={id:gId(),role:'assistant',content:'🎨 正在生成图片...',_streaming:true,_time:nowTime(),_engId:S.currentEngId,_isImage:true};c.messages.push(aiMsg);if(!c.modeLocked){if(!c.mode)c.mode=(S.uiMode==='workflow')?'workflow':'free';c.modeLocked=true;c.title=buildTitleWithSuffix(c.title,c.mode);}const bt=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();if((bt===''||bt==='新对话')&&c.messages.length<=2)c.title=buildTitleWithSuffix(prompt.slice(0,24),chatMode(c));c.updatedAt=Date.now();renderMs();renderSB();await saveNow();const sendBtn=document.getElementById('sendBtn');sendBtn.classList.add('stop');sendBtn.textContent='■';const area=document.getElementById('msgsArea');const lastMsgEl=area.querySelector('.msg:last-child .bub');_streamCtrl=API.generateImage(profile,prompt,{size:'1024x1024',n:1},{onStart:()=>{},onImage:async(imgs)=>{const md=imgs.map((u,i)=>'![生成图片'+(i+1)+']('+u+')').join('\n\n');aiMsg.content=md;aiMsg._streaming=false;c.updatedAt=Date.now();_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';if(lastMsgEl)UI.fullRender(lastMsgEl,md);await saveNow();renderMs();renderSB();if(typeof Archive!=='undefined')Archive.notifyActivity();},onError:async(err)=>{aiMsg.content='❌ 生图失败：'+err.message;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';if(lastMsgEl)UI.fullRender(lastMsgEl,aiMsg.content);await saveNow();toast('生图失败：'+err.message,'er');},});}
