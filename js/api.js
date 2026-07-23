@@ -307,6 +307,125 @@ const API = (function () {
             return { ok: false, msg: '❌ ' + e.message };
         }
     }
+    /* ============ 图片生成 / 改图（统一入口） ============ */
+    /* options:
+         size: '1024x1024' 等
+         n: 生成张数
+         images: base64 dataURL 数组（有内容=改图走 FormData，空=文生图走 JSON）
+       handlers: { onStart, onImage(dataUrlArr), onError } */
+    function generateImage(profile, prompt, options, handlers) {
+        const opts = options || {};
+        const h = handlers || {};
+        const key = getKeys(profile)[0];
+        const hasRefImages = Array.isArray(opts.images) && opts.images.length > 0;
+
+        // dataURL -> Blob（用于改图的 FormData）
+        function dataUrlToBlob(dataUrl) {
+            const m = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+            if (!m) return null;
+            const mime = m[1];
+            const bin = atob(m[2]);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return new Blob([bytes], { type: mime });
+        }
+
+        // 从返回结果里提取图片，统一成 dataURL 数组
+        async function extractImages(data) {
+            const arr = (data && data.data) ? data.data : [];
+            const out = [];
+            for (const item of arr) {
+                if (item.b64_json) {
+                    out.push('data:image/png;base64,' + item.b64_json);
+                } else if (item.url) {
+                    // 有的平台返 url，转成 base64 存下来防失效
+                    try {
+                        const resp = await fetch(item.url);
+                        const blob = await resp.blob();
+                        const dataUrl = await new Promise((resolve, reject) => {
+                            const r = new FileReader();
+                            r.onload = () => resolve(r.result);
+                            r.onerror = reject;
+                            r.readAsDataURL(blob);
+                        });
+                        out.push(dataUrl);
+                    } catch (e) {
+                        out.push(item.url); // 转失败就直接用 url
+                    }
+                }
+            }
+            return out;
+        }
+
+        (async () => {
+            try {
+                if (h.onStart) h.onStart();
+
+                let resp;
+
+                if (hasRefImages) {
+                    // ===== 改图：multipart/form-data → /images/edits =====
+                    const fd = new FormData();
+                    fd.append('model', profile.model);
+                    fd.append('prompt', prompt);
+                    if (opts.size) fd.append('size', opts.size);
+                    if (opts.n) fd.append('n', String(opts.n));
+                    opts.images.forEach((durl, i) => {
+                        const blob = dataUrlToBlob(durl);
+                        if (blob) {
+                            const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+                            fd.append('image[]', blob, 'ref' + i + '.' + ext);
+                        }
+                    });
+
+                    // FormData 不能手动设 Content-Type，让浏览器自动带 boundary
+                    const headers = {};
+                    if (profile.origin === 'public') {
+                        headers['X-Engine-Id'] = profile.id;
+                    } else {
+                        headers['X-Target-Base'] = profile.base || '';
+                        headers['Authorization'] = 'Bearer ' + (key || '');
+                    }
+                    if (typeof Auth !== 'undefined' && Auth.getToken()) {
+                        headers['X-Auth-Token'] = Auth.getToken();
+                    }
+
+                    resp = await fetch('/api/images/edits', {
+                        method: 'POST',
+                        headers: headers,
+                        body: fd,
+                    });
+                } else {
+                    // ===== 文生图：JSON → /images/generations =====
+                    const payload = { model: profile.model, prompt: prompt };
+                    if (opts.n) payload.n = opts.n;
+                    if (opts.size) payload.size = opts.size;
+
+                    resp = await apiF(profile, 'images/generations', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    }, key);
+                }
+
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    throw new Error('HTTP ' + resp.status + ': ' + errText.slice(0, 300));
+                }
+
+                const data = await resp.json();
+                const images = await extractImages(data);
+
+                if (!images.length) throw new Error('平台未返回图片（检查模型是否支持出图）');
+                if (h.onImage) h.onImage(images);
+            } catch (err) {
+                if (h.onError) h.onError(err);
+            }
+        })();
+
+        // 生图是非流式，返回一个假的 abort（保持和 streamChat 接口一致）
+        return { abort: function () {}, get full() { return ''; } };
+    }
+
 
     /* ============ 核心：流式对话 ============ */
     function streamChat(profile, messages, handlers) {
@@ -474,5 +593,7 @@ function normalizeUsage(mode, usage) {
         DEFAULT_PROFILES: DEFAULT_PROFILES,
         apiF: apiF, streamChat: streamChat,
         fetchModels: fetchModels, testConnection: testConnection, getKeys: getKeys,
+        generateImage: generateImage,
     };
+
 })();
