@@ -412,7 +412,107 @@ async function coreSend(opts) {
 
 function reportLog(chat,profile,usage){try{const rounds=Math.floor((chat.messages||[]).filter(m=>m.role==='assistant').length);const tokens=usage?((usage.inputTokens||0)+(usage.outputTokens||0)):0;const token=Auth&&Auth.getToken?Auth.getToken():'';fetch('/api/log',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':token},body:JSON.stringify({chatName:chat.title||'',rounds,tokens,model:(profile&&profile.model)||''})}).catch(()=>{});}catch(e){}}
 async function send(){if(_streamCtrl){_streamCtrl.abort();return;}const inp=document.getElementById('uIn');const text=(inp.value||'').trim();if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}const c=curChat();if(c&&chatMode(c)==='workflow'){if(text&&guardSensitive(text,'工作流·自由输入'))return;}const profile=curProfile();if(profile&&profile.engineType==='image'){if(!text){toast('请输入图片描述','er');return;}inp.value='';aRsz(inp);await coreSendImage(text);return;}const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';const attsForUser=_pendingAtts.slice();inp.value='';aRsz(inp);_pendingAtts=[];renderAttList();await coreSend({visibleText:userVisibleText,actualText:text,atts:attsForUser,titleHint:text});}
-async function coreSendImage(prompt){let c=curChat();if(!c){newChat();c=curChat();}const profile=curProfile();if(!profile){toast('无可用引擎','er');return;}const userMsg={id:gId(),role:'user',content:prompt,_actual:prompt,_time:nowTime()};c.messages.push(userMsg);const aiMsg={id:gId(),role:'assistant',content:'🎨 正在生成图片...',_streaming:true,_time:nowTime(),_engId:S.currentEngId,_isImage:true};c.messages.push(aiMsg);if(!c.modeLocked){if(!c.mode)c.mode=(S.uiMode==='workflow')?'workflow':'free';c.modeLocked=true;c.title=buildTitleWithSuffix(c.title,c.mode);}const bt=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();if((bt===''||bt==='新对话')&&c.messages.length<=2)c.title=buildTitleWithSuffix(prompt.slice(0,24),chatMode(c));c.updatedAt=Date.now();renderMs();renderSB();await saveNow();const sendBtn=document.getElementById('sendBtn');sendBtn.classList.add('stop');sendBtn.textContent='■';const area=document.getElementById('msgsArea');const lastMsgEl=area.querySelector('.msg:last-child .bub');_streamCtrl=API.generateImage(profile,prompt,{size:'1024x1024',n:1},{onStart:()=>{},onImage:async(imgs)=>{const md=imgs.map((u,i)=>'![生成图片'+(i+1)+']('+u+')').join('\n\n');aiMsg.content=md;aiMsg._streaming=false;c.updatedAt=Date.now();_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';if(lastMsgEl)UI.fullRender(lastMsgEl,md);await saveNow();renderMs();renderSB();if(typeof Archive!=='undefined')Archive.notifyActivity();},onError:async(err)=>{aiMsg.content='❌ 生图失败：'+err.message;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;sendBtn.classList.remove('stop');sendBtn.textContent='➤';if(lastMsgEl)UI.fullRender(lastMsgEl,aiMsg.content);await saveNow();toast('生图失败：'+err.message,'er');},});}
+async function coreSendImage(prompt) {
+    let c = curChat();
+    if (!c) { newChat(); c = curChat(); }
+
+    const profile = curProfile();
+    if (!profile) { toast('无可用引擎', 'er'); return; }
+
+    // 收集参考图：参考框里勾选的图片 + 本轮上传的图片（有图=改图，无图=文生图）
+    const refImgs = [];
+    sortedRefPool().forEach(r => {
+        if (r.checked && r.kind === 'file' && r.type === 'image' && r.dataUrl) refImgs.push(r.dataUrl);
+    });
+    _pendingAtts.forEach(a => {
+        if (a.type === 'image' && a.dataUrl) refImgs.push(a.dataUrl);
+    });
+
+    const isEdit = refImgs.length > 0;
+
+    // 落消息
+    const userMsg = {
+        id: gId(),
+        role: 'user',
+        content: prompt + (isEdit ? '（参考 ' + refImgs.length + ' 张图改图）' : ''),
+        _actual: prompt,
+        _time: nowTime()
+    };
+    c.messages.push(userMsg);
+
+    const aiMsg = {
+        id: gId(),
+        role: 'assistant',
+        content: isEdit ? '🎨 正在参考图片生成...' : '🎨 正在生成图片...',
+        _streaming: true,
+        _time: nowTime(),
+        _engId: S.currentEngId,
+        _isImage: true
+    };
+    c.messages.push(aiMsg);
+
+    // 模式锁定 + 标题
+    if (!c.modeLocked) {
+        if (!c.mode) c.mode = (S.uiMode === 'workflow') ? 'workflow' : 'free';
+        c.modeLocked = true;
+        c.title = buildTitleWithSuffix(c.title, c.mode);
+    }
+    const bt = (c.title || '').replace(/-自由$/, '').replace(/-工作流$/, '').trim();
+    if ((bt === '' || bt === '新对话') && c.messages.length <= 2) {
+        c.title = buildTitleWithSuffix(prompt.slice(0, 24), chatMode(c));
+    }
+
+    c.updatedAt = Date.now();
+    renderMs();
+    renderSB();
+    await saveNow();
+
+    // 本轮上传的图已经用过了，清空待发附件
+    _pendingAtts = [];
+    renderAttList();
+    if (typeof renderWfAtts === 'function') renderWfAtts();
+
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.classList.add('stop');
+    sendBtn.textContent = '■';
+
+    const area = document.getElementById('msgsArea');
+    const lastMsgEl = area.querySelector('.msg:last-child .bub');
+
+    _streamCtrl = API.generateImage(profile, prompt, {
+        size: '1024x1024',
+        n: 1,
+        images: refImgs,
+    }, {
+        onStart: () => {},
+        onImage: async (imgs) => {
+            const md = imgs.map((u, i) => '![生成图片' + (i + 1) + '](' + u + ')').join('\n\n');
+            aiMsg.content = md;
+            aiMsg._streaming = false;
+            c.updatedAt = Date.now();
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            if (lastMsgEl) UI.fullRender(lastMsgEl, md);
+            await saveNow();
+            renderMs();
+            renderSB();
+            if (typeof Archive !== 'undefined') Archive.notifyActivity();
+        },
+        onError: async (err) => {
+            aiMsg.content = '❌ 生图失败：' + err.message;
+            aiMsg._streaming = false;
+            aiMsg._interrupted = true;
+            _streamCtrl = null;
+            sendBtn.classList.remove('stop');
+            sendBtn.textContent = '➤';
+            if (lastMsgEl) UI.fullRender(lastMsgEl, aiMsg.content);
+            await saveNow();
+            toast('生图失败：' + err.message, 'er');
+        },
+    });
+}
+
 async function regenerate(msg){const c=curChat();if(!c)return;const idx=c.messages.indexOf(msg);if(idx<1)return;const prev=c.messages[idx-1];if(prev.role!=='user'){toast('无法找到对应的提问','er');return;}const actual=prev._actual||(typeof prev.content==='string'?prev.content:'');const visible=typeof prev.content==='string'?prev.content:'';c.messages.splice(idx,1);c.messages.splice(idx-1,1);await saveNow();renderMs();await coreSend({visibleText:visible,actualText:actual,titleHint:visible});}
 
 function aRsz(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,130)+'px';}
