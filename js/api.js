@@ -370,6 +370,9 @@ const API = (function () {
                     fd.append('prompt', prompt);
                     if (opts.size) fd.append('size', opts.size);
                     if (opts.n) fd.append('n', String(opts.n));
+                    if (opts.quality) fd.append('quality', opts.quality);
+                    if (opts.output_format) fd.append('output_format', opts.output_format);
+
                     opts.images.forEach((durl, i) => {
                         const blob = dataUrlToBlob(durl);
                         if (blob) {
@@ -400,6 +403,8 @@ const API = (function () {
                     const payload = { model: profile.model, prompt: prompt };
                     if (opts.n) payload.n = opts.n;
                     if (opts.size) payload.size = opts.size;
+                    if (opts.quality) payload.quality = opts.quality;
+                    if (opts.output_format) payload.output_format = opts.output_format;
 
                     resp = await apiF(profile, 'images/generations', {
                         method: 'POST',
