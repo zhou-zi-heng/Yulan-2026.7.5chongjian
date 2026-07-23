@@ -160,6 +160,79 @@ const UI = (function () {
             wrap.appendChild(bottom);
         });
     }
+    /* ---------- 包装表格：加"导出Excel"按钮 ---------- */
+    function wrapTables(container) {
+        const tables = container.querySelectorAll('table');
+        tables.forEach((table, idx) => {
+            // 已包装过就跳过
+            if (table.parentNode.classList.contains('table-wrap')) return;
+
+            const wrap = document.createElement('div');
+            wrap.className = 'table-wrap';
+
+            const btn = document.createElement('button');
+            btn.className = 'table-export-btn';
+            btn.textContent = '📊 导出Excel';
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                exportTableToXlsx(table, btn);
+            };
+
+            table.parentNode.replaceChild(wrap, table);
+            wrap.appendChild(btn);
+            wrap.appendChild(table);
+        });
+    }
+
+    /* ---------- 把单个 <table> DOM 导出为 xlsx ---------- */
+    function exportTableToXlsx(tableEl, btnEl) {
+        const doExport = () => {
+            try {
+                // 读取表格为二维数组
+                const rows = [];
+                tableEl.querySelectorAll('tr').forEach(tr => {
+                    const cells = [];
+                    tr.querySelectorAll('th,td').forEach(td => {
+                        cells.push((td.textContent || '').trim());
+                    });
+                    if (cells.length) rows.push(cells);
+                });
+
+                if (!rows.length) {
+                    if (typeof toast === 'function') toast('表格为空', 'er');
+                    return;
+                }
+
+                const ws = XLSX.utils.aoa_to_sheet(rows);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+                const fname = '表格-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.xlsx';
+                XLSX.writeFile(wb, fname);
+
+                if (btnEl) {
+                    const old = btnEl.textContent;
+                    btnEl.textContent = '✓ 已导出';
+                    setTimeout(() => { btnEl.textContent = old; }, 1500);
+                }
+            } catch (e) {
+                if (typeof toast === 'function') toast('导出失败：' + e.message, 'er');
+            }
+        };
+
+        // 按需加载 SheetJS，再导出
+        if (window.XLSX) {
+            doExport();
+        } else if (typeof OfficeParser !== 'undefined' && OfficeParser.loadXLSX) {
+            if (btnEl) btnEl.textContent = '⏳ 加载中...';
+            OfficeParser.loadXLSX().then(doExport).catch(e => {
+                if (typeof toast === 'function') toast('加载Excel库失败：' + e.message, 'er');
+                if (btnEl) btnEl.textContent = '📊 导出Excel';
+            });
+        } else {
+            if (typeof toast === 'function') toast('Excel库不可用', 'er');
+        }
+    }
+
 
     /* ---------- 完整渲染流程 ---------- */
     function fullRender(bubElement, text) {
@@ -168,7 +241,9 @@ const UI = (function () {
         try {
             renderMath(bubElement);
             wrapCodeBlocks(bubElement);
+            wrapTables(bubElement);
             renderMermaid(bubElement);
+
             bubElement.querySelectorAll('img').forEach(img => {
                 img.onclick = () => {
                     const lb = document.getElementById('lightbox');
@@ -333,6 +408,7 @@ const UI = (function () {
         renderMath: renderMath,
         renderMermaid: renderMermaid,
         wrapCodeBlocks: wrapCodeBlocks,
+        wrapTables: wrapTables,
         fullRender: fullRender,
         streamRender: streamRender,
         createMessageNode: createMessageNode,
