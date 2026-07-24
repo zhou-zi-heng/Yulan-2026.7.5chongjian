@@ -122,30 +122,40 @@ const API = (function () {
         return '';
     }
 
-    /* ============ Anthropic 原生协议 ============ */
     function buildPayloadAnthropic(profile, messages) {
         let systemText = '';
         const conv = [];
+
         messages.forEach(m => {
             if (m.role === 'system') {
                 const t = typeof m.content === 'string' ? m.content
-                        : Array.isArray(m.content) ? m.content.map(p => p.text || '').join('\n') : '';
+                    : Array.isArray(m.content) ? m.content.map(p => p.text || '').join('\n') : '';
                 systemText += (systemText ? '\n\n' : '') + t;
                 return;
             }
             conv.push({ role: m.role, content: toAnthropicContent(m.content) });
         });
-        const payload = { model: profile.model, stream: true,
-            max_tokens: profile.useMax ? parseInt(profile.max_tokens, 10) : 4096, messages: conv };
+
+        const payload = {
+            model: profile.model,
+            stream: true,
+            max_tokens: profile.useMax ? parseInt(profile.max_tokens, 10) : 4096,
+            messages: conv
+        };
+
         if (profile.useTemp) payload.temperature = parseFloat(profile.temperature);
         if (profile.useTopP) payload.top_p = parseFloat(profile.top_p);
+
         if (systemText) {
             if (profile.useCache) {
                 const block = { type: 'text', text: systemText, cache_control: { type: 'ephemeral' } };
                 if (profile.cacheTTL === '1h') block.cache_control.ttl = '1h';
                 payload.system = [block];
-            } else { payload.system = systemText; }
+            } else {
+                payload.system = systemText;
+            }
         }
+
         if (profile.useCache && conv.length >= 2) {
             const userIdxs = [];
             conv.forEach((m, i) => { if (m.role === 'user') userIdxs.push(i); });
@@ -163,8 +173,46 @@ const API = (function () {
                 }
             }
         }
+
+        // ===== 兜底清洗：剔除空文本块 / 空消息，避免 Claude 报 "non-empty" =====
+        payload.messages = _sanitizeAnthropicMessages(payload.messages);
+
         return payload;
     }
+
+    /* 清洗 Anthropic 消息：去掉空文本块、修复空内容，保证每条 message 都非空 */
+    function _sanitizeAnthropicMessages(messages) {
+        const out = [];
+        (messages || []).forEach(m => {
+            let content = m.content;
+
+            if (typeof content === 'string') {
+                // 字符串内容：空则跳过整条
+                if (content.trim() === '') return;
+                out.push({ role: m.role, content: content });
+                return;
+            }
+
+            if (Array.isArray(content)) {
+                // 过滤空文本块，保留图片等非文本块
+                const cleaned = content.filter(part => {
+                    if (part.type === 'text') return (part.text || '').trim() !== '';
+                    return true; // image 等非文本块保留
+                });
+                if (!cleaned.length) return; // 全空则跳过整条
+                out.push({ role: m.role, content: cleaned });
+                return;
+            }
+
+            // 其他异常情况：跳过
+        });
+
+        // 兜底：如果全被过滤空了，塞一条占位，避免空 messages 数组报错
+        if (!out.length) out.push({ role: 'user', content: '（无内容）' });
+
+        return out;
+    }
+
     function toAnthropicContent(content) {
         if (typeof content === 'string') return [{ type: 'text', text: content }];
         if (Array.isArray(content)) {
