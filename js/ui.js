@@ -97,10 +97,93 @@ const UI = (function () {
             wrap.textContent = code;
             const pre = codeEl.closest('pre');
             if (pre && pre.parentNode) pre.parentNode.replaceChild(wrap, pre);
-            try { mermaid.run({ nodes: [wrap] }); }
-            catch (e) { console.warn('[Mermaid]', e); }
+            try {
+                mermaid.run({ nodes: [wrap] }).then(() => {
+                    attachMermaidDownload(wrap);
+                }).catch(e => {
+                    console.warn('[Mermaid]', e);
+                });
+            } catch (e) {
+                console.warn('[Mermaid]', e);
+            }
         });
     }
+
+    /* ---------- 给 mermaid 图挂"下载图片"按钮 ---------- */
+    function attachMermaidDownload(wrap) {
+        if (!wrap || wrap.querySelector('.mermaid-dl-btn')) return;
+        const svg = wrap.querySelector('svg');
+        if (!svg) return;
+
+        wrap.style.position = 'relative';
+
+        const btn = document.createElement('button');
+        btn.className = 'mermaid-dl-btn';
+        btn.textContent = '🖼️ 下载图片';
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            downloadSvgAsPng(svg, btn);
+        };
+        wrap.appendChild(btn);
+    }
+
+    /* ---------- SVG → PNG 下载 ---------- */
+    function downloadSvgAsPng(svgEl, btnEl) {
+        try {
+            // 克隆并补全命名空间
+            const clone = svgEl.cloneNode(true);
+            clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+            // 取尺寸
+            let w = svgEl.viewBox && svgEl.viewBox.baseVal && svgEl.viewBox.baseVal.width
+                ? svgEl.viewBox.baseVal.width : svgEl.getBoundingClientRect().width;
+            let h = svgEl.viewBox && svgEl.viewBox.baseVal && svgEl.viewBox.baseVal.height
+                ? svgEl.viewBox.baseVal.height : svgEl.getBoundingClientRect().height;
+            w = Math.max(w, 100);
+            h = Math.max(h, 100);
+
+            const svgStr = new XMLSerializer().serializeToString(clone);
+            const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(svgBlob);
+
+            const img = new Image();
+            img.onload = () => {
+                const scale = 2; // 2倍清晰度
+                const canvas = document.createElement('canvas');
+                canvas.width = w * scale;
+                canvas.height = h * scale;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.scale(scale, scale);
+                ctx.drawImage(img, 0, 0, w, h);
+                URL.revokeObjectURL(url);
+
+                canvas.toBlob((blob) => {
+                    if (!blob) { if (typeof toast === 'function') toast('导出失败', 'er'); return; }
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = '图表-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(a.href);
+                    if (btnEl) {
+                        btnEl.textContent = '✓ 已下载';
+                        setTimeout(() => { btnEl.textContent = '🖼️ 下载图片'; }, 1500);
+                    }
+                }, 'image/png');
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                if (typeof toast === 'function') toast('图表转换失败', 'er');
+            };
+            img.src = url;
+        } catch (e) {
+            if (typeof toast === 'function') toast('下载失败：' + e.message, 'er');
+        }
+    }
+
 
     /* ---------- 包装代码块 ---------- */
     function wrapCodeBlocks(container) {
