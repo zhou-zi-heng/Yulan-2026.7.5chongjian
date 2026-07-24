@@ -501,4 +501,23 @@ body{
     color:var(--pri);
     border-color:var(--pri);
 }
+/* ===== Mermaid 图下载按钮 ===== */
+.mermaid-dl-btn{
+    position:absolute;
+    top:6px;
+    right:8px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:5px;
+    padding:3px 10px;
+    font-size:11px;
+    cursor:pointer;
+    color:var(--text2);
+    transition:all .15s;
+    z-index:1;
+}
+.mermaid-dl-btn:hover{
+    color:var(--pri);
+    border-color:var(--pri);
+}
 
