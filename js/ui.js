@@ -384,6 +384,20 @@ const UI = (function () {
             m.appendChild(mf);
         }
 
+        // 思考过程折叠区（AI消息且有reasoning时）
+        if (msg.role === 'assistant' && msg._reasoning) {
+            const think = document.createElement('details');
+            think.className = 'think-box';
+            const summary = document.createElement('summary');
+            summary.textContent = '💭 思考过程';
+            think.appendChild(summary);
+            const tc = document.createElement('div');
+            tc.className = 'think-content';
+            tc.textContent = msg._reasoning;
+            think.appendChild(tc);
+            m.appendChild(think);
+        }
+
         const bub = document.createElement('div');
         bub.className = 'bub';
         if (msg.role === 'assistant') {
@@ -393,6 +407,7 @@ const UI = (function () {
             bub.textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
         }
         m.appendChild(bub);
+
 
         const mm = document.createElement('div');
         mm.className = 'mm';
