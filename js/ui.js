@@ -346,13 +346,14 @@ const UI = (function () {
     }
 
     /* ---------- 创建消息 DOM ---------- */
+    /* ---------- 创建消息 DOM ---------- */
     function createMessageNode(msg, options) {
         const opts = options || {};
         const wrap = document.createElement('div');
         wrap.className = 'msg ' + msg.role;
         wrap.dataset.msgId = msg.id || '';
 
-        // ★ 勾选模式：头像旁加勾选框
+        // 勾选模式：头像旁加勾选框
         if (opts.selectMode) {
             const selBox = document.createElement('div');
             selBox.className = 'msg-sel';
@@ -384,7 +385,7 @@ const UI = (function () {
             m.appendChild(mf);
         }
 
-        // 思考过程折叠区（AI消息且有reasoning时）
+        // 思考过程折叠区（AI消息且有 reasoning 时）
         if (msg.role === 'assistant' && msg._reasoning) {
             const think = document.createElement('details');
             think.className = 'think-box';
@@ -408,15 +409,16 @@ const UI = (function () {
         }
         m.appendChild(bub);
 
-
         const mm = document.createElement('div');
         mm.className = 'mm';
+
         if (msg._time) {
             const t = document.createElement('span');
             t.className = 'msg-time';
             t.textContent = msg._time;
             mm.appendChild(t);
         }
+
         if (msg.role === 'assistant' && msg.content) {
             const wc = cntW(msg.content);
             if (wc > 0) {
@@ -425,6 +427,7 @@ const UI = (function () {
                 mm.appendChild(w);
             }
         }
+
         const cpBtn = document.createElement('button');
         cpBtn.textContent = '📋 复制';
         cpBtn.onclick = () => {
@@ -432,22 +435,43 @@ const UI = (function () {
                 .then(() => toast('已复制')).catch(() => toast('复制失败', 'er'));
         };
         mm.appendChild(cpBtn);
+
         if (opts.onDelete) {
             const dBtn = document.createElement('button');
             dBtn.textContent = '🗑️ 删除';
             dBtn.onclick = () => { if (confirm('删除这条消息？')) opts.onDelete(msg); };
             mm.appendChild(dBtn);
         }
+
+        // 用户消息：编辑
+        if (msg.role === 'user' && opts.onEdit) {
+            const eBtn = document.createElement('button');
+            eBtn.textContent = '✏️ 编辑';
+            eBtn.onclick = () => opts.onEdit(msg);
+            mm.appendChild(eBtn);
+        }
+
+        // AI消息：重答
         if (msg.role === 'assistant' && opts.onRegen) {
             const rBtn = document.createElement('button');
             rBtn.textContent = '🔄 重答';
             rBtn.onclick = () => opts.onRegen(msg);
             mm.appendChild(rBtn);
         }
+
+        // AI消息：继续生成（仅中断的）
+        if (msg.role === 'assistant' && msg._interrupted && msg.content && opts.onContinue) {
+            const cBtn = document.createElement('button');
+            cBtn.textContent = '▶ 继续';
+            cBtn.onclick = () => opts.onContinue(msg);
+            mm.appendChild(cBtn);
+        }
+
         m.appendChild(mm);
         wrap.appendChild(m);
         return { wrap: wrap, bub: bub };
     }
+
 
     /* ---------- 渲染整个消息列表 ---------- */
     function renderMessages(container, messages, options) {
