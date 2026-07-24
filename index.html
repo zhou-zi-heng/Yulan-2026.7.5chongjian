@@ -240,15 +240,17 @@
         <div class="drop-mask" id="dropMask"><div class="drop-mask-inner"><div style="font-size:48px">📥</div><div style="font-size:16px;margin-top:8px">松开以上传文件 / 导入分享对话</div></div></div>
 
         <div class="inp-area">
-            <div class="net-bar" style="display:flex;gap:12px;align-items:center;margin-bottom:6px;font-size:12px;color:var(--text2)">
+            <div class="net-bar" style="display:flex;gap:12px;align-items:center;margin-bottom:6px;font-size:12px;color:var(--text2);flex-wrap:wrap">
+                <span id="quickModelBar" style="display:none;gap:4px;align-items:center"></span>
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                     <input type="checkbox" id="netReadChk" style="accent-color:var(--pri)"> 🔗 读取链接
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                     <input type="checkbox" id="netSearchChk" style="accent-color:var(--pri)"> 🌐 联网搜索
                 </label>
-                <span style="font-size:11px;opacity:.7">（读取：识别消息里的网址/YouTube；搜索：先查网络再答）</span>
+                <span style="font-size:11px;opacity:.7">（读取：识别网址/YouTube；搜索：先查网络）</span>
             </div>
+
 
             <div class="inp-wrap">
                 <div style="position:relative">
