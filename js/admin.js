@@ -258,14 +258,12 @@ const Admin = (function () {
             const data = await apiCall('admin/config/get');
             const cfg = data.config || {};
 
-            // 拉所有公有引擎，供快捷档选择
             let engs = [];
             try {
                 const ed = await apiCall('admin/engines/list');
                 engs = ed.engines || [];
             } catch (e) {}
 
-            // 解析已存的快捷档
             let quick = [];
             try { quick = JSON.parse(cfg.quickModels || '[]'); } catch (e) { quick = []; }
             while (quick.length < 3) quick.push({ label: '', engineId: '' });
@@ -308,8 +306,14 @@ const Admin = (function () {
 
                 <div style="margin:16px 0;padding:12px;background:var(--pri-l);border-radius:8px">
                     <h4 style="font-size:13px;margin-bottom:10px">⚡ 快捷模型3档（显示在用户输入框旁，点击秒切）</h4>
-                    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">只能选公有引擎。留空的档不显示。建议按"经济/标准/旗舰"配。</div>
+                    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">只能选公有引擎。留空的档不显示。</div>
                     ${quickHtml}
+                </div>
+
+                <div class="fg">
+                    <label>⌨️ 快捷指令（用户输入框打"/"唤起，每行一条，格式：名称|内容模板）</label>
+                    <textarea id="cfg_quickCmds" rows="6" placeholder="翻译成英文|请把以下内容翻译成地道的英文：&#10;总结要点|请用要点列出以下内容的核心：&#10;润色|请润色以下文字，使其更流畅专业：">${esc(cfg.quickCmds || '')}</textarea>
+                    <div style="font-size:11px;color:var(--text2);margin-top:4px">每行一条，用竖线 | 分隔"名称"和"内容"。</div>
                 </div>
 
                 <button class="btn btn-p" onclick="Admin.saveConfig()">💾 保存</button>
@@ -323,6 +327,7 @@ const Admin = (function () {
         const chunkSize = document.getElementById('cfg_chunkSize').value;
         const tavilyKey = document.getElementById('cfg_tavilyKey').value.trim();
         const jinaKey = document.getElementById('cfg_jinaKey').value.trim();
+        const quickCmds = document.getElementById('cfg_quickCmds').value;
 
         const quick = [];
         for (let i = 0; i < 3; i++) {
@@ -332,7 +337,7 @@ const Admin = (function () {
         }
 
         apiCall('admin/config/save', 'POST', {
-            config: { chunkSize, tavilyKey, jinaKey, quickModels: JSON.stringify(quick) }
+            config: { chunkSize, tavilyKey, jinaKey, quickModels: JSON.stringify(quick), quickCmds: quickCmds }
         })
             .then(() => {
                 toast('✅ 已保存');
@@ -340,7 +345,6 @@ const Admin = (function () {
             })
             .catch(e => toast('失败：' + e.message, 'er'));
     }
-
 
 
     return {
