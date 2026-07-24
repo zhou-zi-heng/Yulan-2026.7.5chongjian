@@ -11,14 +11,24 @@ const Exporter = (function () {
         if (window.docx) return Promise.resolve();
         if (_docxLoading) return _docxLoading;
         _docxLoading = new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.min.js';
-            s.onload = () => window.docx ? resolve() : reject(new Error('docx.js 加载后未注入'));
-            s.onerror = () => reject(new Error('docx.js CDN 加载失败'));
-            document.head.appendChild(s);
+            const urls = [
+                'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js',
+                'https://unpkg.com/docx@8.5.0/build/index.umd.min.js',
+            ];
+            let idx = 0;
+            const tryLoad = () => {
+                if (idx >= urls.length) { reject(new Error('docx.js 所有CDN加载失败')); return; }
+                const s = document.createElement('script');
+                s.src = urls[idx++];
+                s.onload = () => window.docx ? resolve() : tryLoad();
+                s.onerror = () => tryLoad();
+                document.head.appendChild(s);
+            };
+            tryLoad();
         });
         return _docxLoading;
     }
+
 
     /* ---------- 按需加载 html2pdf ---------- */
     let _pdfLoading = null;
