@@ -290,6 +290,7 @@ const Admin = (function () {
             .catch(e => toast('失败：' + e.message, 'er'));
     }
 
+    return {
         open, close, switchTab, apiCall,
         showCreateUser, showResetPwd, toggleStatus, delUser, showPerm, searchUsers,
         importXLSX, exportXLSX, downloadTemplate,
