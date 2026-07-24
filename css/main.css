@@ -521,3 +521,23 @@ body{
     border-color:var(--pri);
 }
 
+/* ===== 快捷模型档按钮 ===== */
+#quickModelBar{display:none}
+#quickModelBar.show{display:inline-flex}
+.qm-btn{
+    padding:3px 10px;
+    border:1px solid var(--border);
+    border-radius:14px;
+    background:var(--card);
+    color:var(--text2);
+    font-size:12px;
+    cursor:pointer;
+    transition:all .12s;
+}
+.qm-btn:hover{border-color:var(--pri);color:var(--pri)}
+.qm-btn.act{
+    background:linear-gradient(135deg,#667eea,#764ba2);
+    color:#fff;
+    border-color:transparent;
+    font-weight:600;
+}
