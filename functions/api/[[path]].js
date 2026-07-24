@@ -83,6 +83,190 @@ async function hLog(request,env){const pl=await verifyUser(request,env);if(!pl)r
 async function hGetConfig(request,env){const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);try{const rows=(await env.DB.prepare('SELECT key,value FROM global_config').all()).results||[];const cfg={};rows.forEach(r=>cfg[r.key]=r.value);return jr({ok:true,config:cfg});}catch(e){return jr({ok:true,config:{}});}}
 async function hGetModelPrices(request,env){const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);try{const rows=(await env.DB.prepare('SELECT model_name,price_in,price_out,price_cache_read,price_cache_write FROM model_prices').all()).results||[];const map={};rows.forEach(r=>map[r.model_name]={priceIn:r.price_in,priceOut:r.price_out,priceCacheRead:r.price_cache_read,priceCacheWrite:r.price_cache_write});return jr({ok:true,prices:map});}catch(e){return jr({ok:true,prices:{}});}}
 
+/* ==================== 联网能力（批次1） ==================== */
+
+/* 读取全局配置里的某个 key */
+async function _getConfigVal(env, key) {
+    try {
+        const row = await env.DB.prepare('SELECT value FROM global_config WHERE key=?').bind(key).first();
+        return row ? row.value : '';
+    } catch (e) {
+        return '';
+    }
+}
+
+/* 网页读取：走 Jina Reader（免费，无需key） */
+async function hWebRead(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+
+    const url = new URL(request.url);
+    const target = url.searchParams.get('url') || '';
+    if (!target) return jr({ error: '缺 url' }, 400);
+
+    try {
+        const jinaUrl = 'https://r.jina.ai/' + target;
+        const resp = await fetch(jinaUrl, {
+            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
+        });
+        if (!resp.ok) return jr({ error: '读取失败 HTTP ' + resp.status }, 502);
+        let text = await resp.text();
+        // 截断，避免超大网页撑爆 token（约 5 万字符上限）
+        const MAX = 50000;
+        let truncated = false;
+        if (text.length > MAX) { text = text.slice(0, MAX); truncated = true; }
+        return jr({ ok: true, url: target, text: text, truncated: truncated });
+    } catch (e) {
+        return jr({ error: '读取异常：' + e.message }, 502);
+    }
+}
+
+/* 搜索：走 Tavily（需超管配 key） */
+async function hWebSearch(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+
+    let b;
+    try { b = await request.json(); } catch (e) { return jr({ error: '格式错误' }, 400); }
+    const query = (b.query || '').trim();
+    if (!query) return jr({ error: '缺 query' }, 400);
+
+    const key = await _getConfigVal(env, 'tavilyKey');
+    if (!key) return jr({ error: '超管未配置 Tavily Key' }, 500);
+
+    try {
+        const resp = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                api_key: key,
+                query: query,
+                search_depth: 'basic',
+                max_results: 6,
+                include_answer: true,
+            }),
+        });
+        if (!resp.ok) {
+            const errText = await resp.text();
+            return jr({ error: 'Tavily HTTP ' + resp.status + ' ' + errText.slice(0, 200) }, 502);
+        }
+        const data = await resp.json();
+        const results = (data.results || []).map(r => ({
+            title: r.title || '',
+            url: r.url || '',
+            content: r.content || '',
+        }));
+        return jr({ ok: true, query: query, answer: data.answer || '', results: results });
+    } catch (e) {
+        return jr({ error: '搜索异常：' + e.message }, 502);
+    }
+}
+
+/* YouTube 频道：用 Jina 抓 /videos 页，返回清洗后的文本 */
+async function hYtChannel(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+
+    const url = new URL(request.url);
+    let target = url.searchParams.get('url') || '';
+    if (!target) return jr({ error: '缺 url' }, 400);
+
+    // 规范化到频道的 videos 列表页
+    target = target.replace(/\/+$/, '');
+    if (!/\/videos$/.test(target)) target = target + '/videos';
+
+    try {
+        const jinaUrl = 'https://r.jina.ai/' + target;
+        const resp = await fetch(jinaUrl, {
+            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
+        });
+        if (!resp.ok) return jr({ error: '频道读取失败 HTTP ' + resp.status }, 502);
+        let text = await resp.text();
+        const MAX = 40000;
+        let truncated = false;
+        if (text.length > MAX) { text = text.slice(0, MAX); truncated = true; }
+        return jr({ ok: true, url: target, text: text, truncated: truncated });
+    } catch (e) {
+        return jr({ error: '频道读取异常：' + e.message }, 502);
+    }
+}
+
+/* YouTube 单视频字幕：尝试抓 timedtext（免费），无字幕则明确返回 */
+async function hYtTranscript(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+
+    const url = new URL(request.url);
+    const target = url.searchParams.get('url') || '';
+    if (!target) return jr({ error: '缺 url' }, 400);
+
+    // 提取 videoId
+    let vid = '';
+    const m1 = target.match(/[?&]v=([\w-]{6,})/);
+    const m2 = target.match(/youtu\.be\/([\w-]{6,})/);
+    const m3 = target.match(/\/shorts\/([\w-]{6,})/);
+    if (m1) vid = m1[1];
+    else if (m2) vid = m2[1];
+    else if (m3) vid = m3[1];
+    if (!vid) return jr({ error: '无法识别视频ID' }, 400);
+
+    try {
+        // 1) 抓视频页，解析可用字幕轨
+        const pageResp = await fetch('https://www.youtube.com/watch?v=' + vid, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'zh-CN,zh;en' },
+        });
+        const html = await pageResp.text();
+
+        // 从 captionTracks 里找字幕 baseUrl
+        const trackMatch = html.match(/"captionTracks":(\[.*?\])/);
+        if (!trackMatch) {
+            return jr({ ok: true, hasCaption: false, text: '', msg: '该视频无字幕，无法提取文本' });
+        }
+
+        let tracks;
+        try { tracks = JSON.parse(trackMatch[1].replace(/\\u0026/g, '&')); }
+        catch (e) { tracks = []; }
+        if (!tracks.length) {
+            return jr({ ok: true, hasCaption: false, text: '', msg: '该视频无字幕，无法提取文本' });
+        }
+
+        // 优先中文，其次英文，再次第一条
+        let track = tracks.find(t => /^zh/.test(t.languageCode))
+            || tracks.find(t => /^en/.test(t.languageCode))
+            || tracks[0];
+
+        const capResp = await fetch(track.baseUrl);
+        const capXml = await capResp.text();
+
+        // 解析 <text ...>内容</text>
+        const segs = [];
+        const re = /<text[^>]*>([\s\S]*?)<\/text>/g;
+        let mm;
+        while ((mm = re.exec(capXml)) !== null) {
+            let t = mm[1]
+                .replace(/&amp;#39;/g, "'")
+                .replace(/&#39;/g, "'")
+                .replace(/&amp;quot;/g, '"')
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/\n/g, ' ')
+                .trim();
+            if (t) segs.push(t);
+        }
+
+        const fullText = segs.join(' ');
+        if (!fullText) {
+            return jr({ ok: true, hasCaption: false, text: '', msg: '字幕解析为空，无法提取文本' });
+        }
+        return jr({ ok: true, hasCaption: true, lang: track.languageCode || '', text: fullText });
+    } catch (e) {
+        return jr({ ok: true, hasCaption: false, text: '', msg: '字幕提取失败：' + e.message });
+    }
+}
+
+
 async function hAdmin(request,env,action,payload){
     if(!env.DB)return jr({error:'D1 未绑定'},500);
     if(action==='ping')return jr({ok:true,admin:payload.username});
