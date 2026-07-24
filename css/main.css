@@ -567,3 +567,30 @@ body{
     max-height:300px;
     overflow-y:auto;
 }
+/* ===== 快捷指令面板 ===== */
+.cmd-panel{
+    display:none;
+    position:absolute;
+    bottom:100%;
+    left:0;
+    right:0;
+    margin-bottom:6px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:10px;
+    box-shadow:0 -4px 20px rgba(0,0,0,.12);
+    max-height:240px;
+    overflow-y:auto;
+    z-index:150;
+    padding:4px;
+}
+.cmd-panel.show{display:block}
+.cmd-item{
+    padding:7px 10px;
+    border-radius:7px;
+    cursor:pointer;
+    font-size:13px;
+}
+.cmd-item:hover{background:var(--pri-l)}
+.cmd-item .cmd-name{font-weight:600;color:var(--text)}
+.cmd-item .cmd-preview{font-size:11px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
