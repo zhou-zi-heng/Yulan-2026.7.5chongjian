@@ -262,7 +262,10 @@
                         <div id="attListBox" style="display:none"><div class="att-head"><span id="attCount"></span><button onclick="clrAtt()">🗑️ 清空全部</button></div><div class="att-list" id="attList"></div></div>
                     </div>
                 </div>
-                <div class="inp-box"><textarea id="uIn" placeholder="输入消息... (Enter发送, Shift+Enter换行)" rows="1" onkeydown="hKey(event)" oninput="aRsz(this)"></textarea></div>
+                <div class="inp-box" style="position:relative">
+                    <div id="cmdPanel" class="cmd-panel"></div>
+                    <textarea id="uIn" placeholder="输入消息... (Enter发送, Shift+Enter换行, / 唤起指令)" rows="1" onkeydown="hKey(event)" oninput="onInputChange(this)"></textarea>
+                </div>
                 <button class="send" id="sendBtn" onclick="send()">➤</button>
             </div>
         </div>
