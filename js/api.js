@@ -115,12 +115,18 @@ const API = (function () {
             if (obj.usage) usageBox.usage = obj.usage;
             if (obj.choices && obj.choices[0]) {
                 const c = obj.choices[0];
-                if (c.delta && c.delta.content) return c.delta.content;
+                const delta = c.delta || {};
+                // 思考过程（DeepSeek 等的 reasoning_content）
+                if (delta.reasoning_content) {
+                    usageBox.reasoning = (usageBox.reasoning || '') + delta.reasoning_content;
+                }
+                if (delta.content) return delta.content;
                 if (c.message && c.message.content) return c.message.content;
             }
         } catch (e) {}
         return '';
     }
+
 
     function buildPayloadAnthropic(profile, messages) {
         let systemText = '';
@@ -487,7 +493,8 @@ const API = (function () {
         let lastChunkTime = Date.now();
         let aborted = false;
         let full = '';
-        const usageBox = { usage: null };
+        const usageBox = { usage: null, reasoning: '' };
+
 
         const HEARTBEAT_INTERVAL = 5000;
         const STALL_TIMEOUT = 60000;
@@ -574,14 +581,14 @@ const API = (function () {
                         }
 
                         cleanup();
-                        if (aborted) { if (h.onAbort) h.onAbort(full, normalizeUsage(req.mode, usageBox.usage)); }
-                        else { if (h.onDone) h.onDone(full, normalizeUsage(req.mode, usageBox.usage)); }
+                        if (aborted) { if (h.onAbort) h.onAbort(full, normalizeUsage(req.mode, usageBox.usage), usageBox.reasoning); }
+                        else { if (h.onDone) h.onDone(full, normalizeUsage(req.mode, usageBox.usage), usageBox.reasoning); }
                         return;
                     } catch (err) {
                         lastErr = err;
                         if (err.name === 'AbortError' || aborted) {
                             cleanup();
-                            if (h.onAbort) h.onAbort(full, normalizeUsage(req.mode, usageBox.usage));
+                            if (h.onAbort) h.onAbort(full, normalizeUsage(req.mode, usageBox.usage), usageBox.reasoning);
                             return;
                         }
                         if (attempt >= MAX_RETRY) break;
