@@ -398,6 +398,163 @@ async function aConfigSave(request,env){let b;try{b=await request.json();}catch(
 async function aModelsList(env){try{const rows=(await env.DB.prepare('SELECT * FROM model_prices ORDER BY model_name').all()).results||[];return jr({ok:true,models:rows});}catch(e){return jr({error:e.message},500);}}
 async function aModelsSave(request,env){let b;try{b=await request.json();}catch(e){return jr({error:'格式错误'},400);}const mn=(b.model_name||'').trim();if(!mn)return jr({error:'模型名必填'},400);try{const ex=await env.DB.prepare('SELECT model_name FROM model_prices WHERE model_name=?').bind(mn).first();if(ex)await env.DB.prepare('UPDATE model_prices SET price_in=?,price_out=?,price_cache_read=?,price_cache_write=? WHERE model_name=?').bind(b.priceIn||0,b.priceOut||0,b.priceCR||0,b.priceCW||0,mn).run();else await env.DB.prepare('INSERT INTO model_prices (model_name,price_in,price_out,price_cache_read,price_cache_write) VALUES (?,?,?,?,?)').bind(mn,b.priceIn||0,b.priceOut||0,b.priceCR||0,b.priceCW||0).run();return jr({ok:true});}catch(e){return jr({error:e.message},500);}}
 async function aModelsDelete(request,env){let b;try{b=await request.json();}catch(e){return jr({error:'格式错误'},400);}if(!b.model_name)return jr({error:'缺模型名'},400);try{await env.DB.prepare('DELETE FROM model_prices WHERE model_name=?').bind(b.model_name).run();return jr({ok:true});}catch(e){return jr({error:e.message},500);}}
+/* ==================== 普通用户接口（补全缺失函数） ==================== */
+
+/* 用户读全局配置：只暴露安全字段，绝不返回 tavilyKey / jinaKey 等敏感 key */
+async function hGetConfig(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+    if (!env.DB) return jr({ ok: true, config: {} });
+    try {
+        const rows = (await env.DB.prepare('SELECT key,value FROM global_config').all()).results || [];
+        const raw = {};
+        rows.forEach(r => raw[r.key] = r.value);
+        // 白名单：只把前端要用的、非敏感的配置发给用户
+        const safe = {
+            chunkSize: raw.chunkSize || '300',
+            quickModels: raw.quickModels || '[]',
+            quickCmds: raw.quickCmds || '',
+        };
+        return jr({ ok: true, config: safe });
+    } catch (e) {
+        return jr({ ok: true, config: {} });
+    }
+}
+
+/* 用户读云端预设（工作流用）。无云端数据时返回 null，前端会自动回退 presets.json */
+async function hGetPresets(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+    if (!env.DB) return jr({ ok: true, presets: null });
+    try {
+        const row = await env.DB.prepare('SELECT data FROM presets WHERE id=1').first();
+        const presets = (row && row.data) ? JSON.parse(row.data) : null;
+        return jr({ ok: true, presets });
+    } catch (e) {
+        return jr({ ok: true, presets: null });
+    }
+}
+
+/* 用户读模型单价表（算费用用）。返回 { 模型名: {priceIn,...} } */
+async function hGetModelPrices(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+    if (!env.DB) return jr({ ok: true, prices: {} });
+    try {
+        const rows = (await env.DB.prepare('SELECT * FROM model_prices').all()).results || [];
+        const prices = {};
+        rows.forEach(m => {
+            prices[m.model_name] = {
+                priceIn: m.price_in,
+                priceOut: m.price_out,
+                priceCacheRead: m.price_cache_read,
+                priceCacheWrite: m.price_cache_write,
+            };
+        });
+        return jr({ ok: true, prices });
+    } catch (e) {
+        return jr({ ok: true, prices: {} });
+    }
+}
+
+/* 公有引擎「获取模型列表」：后端用引擎的 key 去中转站拉 models */
+async function hEngineModels(request, env, url) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+
+    const engineId = url.searchParams.get('engineId') || '';
+    if (!engineId) return jr({ error: '缺 engineId' }, 400);
+
+    try {
+        const e = await env.DB.prepare('SELECT * FROM engines_public WHERE id=? AND username=?')
+            .bind(engineId, pl.username).first();
+        if (!e) return jr({ error: '引擎不存在或无权访问' }, 403);
+
+        const apiKey = await decKey(e.api_key, env.KEY_SECRET);
+        const base = (e.base_url || '').replace(/\/+$/, '');
+        const proto = e.protocol || 'openai';
+
+        let path = 'models';
+        if (proto === 'anthropic') path = 'v1/models';
+        if (proto === 'gemini') path = 'v1beta/models';
+
+        const resp = await fetch(base + '/' + path, {
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer ' + apiKey },
+        });
+        if (!resp.ok) {
+            const t = await resp.text();
+            return jr({ error: 'HTTP ' + resp.status + ': ' + t.slice(0, 200) }, 502);
+        }
+
+        const data = await resp.json();
+        let list = [];
+        if (Array.isArray(data.data)) list = data.data.map(m => m.id || m.name).filter(Boolean);
+        else if (Array.isArray(data.models)) list = data.models.map(m => (m.id || m.name || '').replace(/^models\//, '')).filter(Boolean);
+        else if (Array.isArray(data)) list = data.map(m => m.id || m.name || m).filter(Boolean);
+
+        list.sort();
+        return jr({ ok: true, models: list });
+    } catch (e) {
+        return jr({ error: '获取模型异常：' + e.message }, 502);
+    }
+}
+
+/* 用户设置公有引擎的默认模型（存到 user_model 字段，不影响超管配置） */
+async function hSetModel(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+
+    let b;
+    try { b = await request.json(); } catch (e) { return jr({ error: '格式错误' }, 400); }
+
+    const engineId = (b.engineId || '').trim();
+    const model = (b.model || '').trim();
+    if (!engineId) return jr({ error: '缺 engineId' }, 400);
+
+    try {
+        const e = await env.DB.prepare('SELECT id FROM engines_public WHERE id=? AND username=?')
+            .bind(engineId, pl.username).first();
+        if (!e) return jr({ error: '引擎不存在或无权访问' }, 403);
+
+        // 兼容：若没有 user_model 字段，捕获错误后静默忽略（用户设置不生效但不报错）
+        try {
+            await env.DB.prepare('UPDATE engines_public SET user_model=? WHERE id=? AND username=?')
+                .bind(model, engineId, pl.username).run();
+        } catch (colErr) {
+            return jr({ ok: true, note: 'user_model 字段不存在，已忽略（不影响使用）' });
+        }
+        return jr({ ok: true });
+    } catch (e) {
+        return jr({ error: e.message }, 502);
+    }
+}
+
+/* 记录对话日志（供超管监控页） */
+async function hLog(request, env) {
+    const pl = await verifyUser(request, env);
+    if (!pl) return jr({ error: '未登录' }, 401);
+    if (!env.DB) return jr({ ok: true });
+
+    let b;
+    try { b = await request.json(); } catch (e) { return jr({ ok: true }); }
+
+    try {
+        await env.DB.prepare('INSERT INTO logs (username,chat_name,rounds,tokens,model,created_at) VALUES (?,?,?,?,?,?)')
+            .bind(
+                pl.username,
+                String(b.chatName || '').slice(0, 200),
+                parseInt(b.rounds, 10) || 0,
+                parseInt(b.tokens, 10) || 0,
+                String(b.model || '').slice(0, 100),
+                Date.now()
+            ).run();
+        return jr({ ok: true });
+    } catch (e) {
+        // 日志写入失败不影响主流程
+        return jr({ ok: true });
+    }
+}
 
 async function hProxy(request,env,url,sub){
     const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录或登录已过期，请重新登录'},401);
