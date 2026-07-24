@@ -437,7 +437,8 @@ async function doNetworkAugment(userText) {
                     if (data.hasCaption && data.text) {
                         augment += '\n\n=== 📹 视频字幕：' + u + ' ===\n' + data.text + '\n=== 字幕结束 ===\n';
                     } else {
-                        augment += '\n\n=== 📹 视频：' + u + ' ===\n（' + (data.msg || '无字幕，无法提取') + '）\n';
+                        toast('视频无字幕或提取失败', 'er');
+                        augment += '\n\n=== 📹 视频：' + u + ' ===\n（' + (data.msg || '无字幕，无法提取') + '，此链接无有效内容）\n';
                     }
                 } else if (isYtChannel) {
                     toast('正在读取 YouTube 频道...');
@@ -446,7 +447,8 @@ async function doNetworkAugment(userText) {
                     if (data.ok && data.text) {
                         augment += '\n\n=== 📺 YouTube频道：' + u + ' ===\n' + data.text + '\n=== 频道内容结束 ===\n';
                     } else {
-                        augment += '\n\n=== 📺 频道：' + u + ' ===\n（读取失败：' + (data.error || '未知') + '）\n';
+                        toast('频道读取失败：' + (data.error || '未知'), 'er');
+                        augment += '\n\n=== 📺 频道读取失败：' + u + ' ===\n（' + (data.error || '未知') + '，请勿基于此链接编造内容）\n';
                     }
                 } else {
                     toast('正在读取网页...');
@@ -455,44 +457,50 @@ async function doNetworkAugment(userText) {
                     if (data.ok && data.text) {
                         augment += '\n\n=== 🔗 网页内容：' + u + ' ===\n' + data.text + '\n=== 网页结束 ===\n';
                     } else {
-                        augment += '\n\n=== 🔗 网页：' + u + ' ===\n（读取失败：' + (data.error || '未知') + '）\n';
+                        toast('网页读取失败：' + (data.error || '未知'), 'er');
+                        augment += '\n\n=== 🔗 网页读取失败：' + u + ' ===\n（' + (data.error || '未知') + '，请勿基于此链接编造内容）\n';
                     }
                 }
             } catch (e) {
+                toast('读取异常：' + e.message, 'er');
                 augment += '\n\n=== 🔗 ' + u + ' 读取异常：' + e.message + ' ===\n';
             }
         }
         if (!urls.length) toast('未在消息中识别到链接', 'er');
     }
 
-    // ---- 联网搜索 ----
-    if (searchOn && userText.trim()) {
-        try {
-            toast('正在联网搜索...');
-            const resp = await fetch('/api/web/search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
-                body: JSON.stringify({ query: userText.trim() }),
-            });
-            const data = await resp.json();
-            if (data.ok) {
-                let s = '\n\n=== 🌐 联网搜索结果（关键词：' + data.query + '）===\n';
-                if (data.answer) s += '【摘要】' + data.answer + '\n\n';
-                (data.results || []).forEach((r, i) => {
-                    s += (i + 1) + '. ' + r.title + '\n   ' + r.url + '\n   ' + r.content + '\n\n';
+    // ---- 联网搜索（剔除 query 里的网址，避免跑偏）----
+    if (searchOn) {
+        const query = userText.replace(/https?:\/\/[^\s，。、）)】]+/g, '').trim();
+        if (query) {
+            try {
+                toast('正在联网搜索...');
+                const resp = await fetch('/api/web/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                    body: JSON.stringify({ query: query }),
                 });
-                s += '=== 搜索结束 ===\n';
-                augment += s;
-            } else {
-                toast('搜索失败：' + (data.error || '未知'), 'er');
+                const data = await resp.json();
+                if (data.ok) {
+                    let s = '\n\n=== 🌐 联网搜索结果（关键词：' + data.query + '）===\n';
+                    if (data.answer) s += '【摘要】' + data.answer + '\n\n';
+                    (data.results || []).forEach((r, i) => {
+                        s += (i + 1) + '. ' + r.title + '\n   ' + r.url + '\n   ' + r.content + '\n\n';
+                    });
+                    s += '=== 搜索结束 ===\n';
+                    augment += s;
+                } else {
+                    toast('搜索失败：' + (data.error || '未知'), 'er');
+                }
+            } catch (e) {
+                toast('搜索异常：' + e.message, 'er');
             }
-        } catch (e) {
-            toast('搜索异常：' + e.message, 'er');
         }
     }
 
     return augment;
 }
+
 
 async function send() {
     if (_streamCtrl) { _streamCtrl.abort(); return; }
