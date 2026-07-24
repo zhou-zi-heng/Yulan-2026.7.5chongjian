@@ -32,6 +32,10 @@ export async function onRequest(context){
     if(sub==='log')return await hLog(request,env);
     if(sub==='config')return await hGetConfig(request,env);
     if(sub==='modelprices')return await hGetModelPrices(request,env);
+    if(sub==='web/read')return await hWebRead(request,env);
+    if(sub==='web/search')return await hWebSearch(request,env);
+    if(sub==='yt/channel')return await hYtChannel(request,env);
+    if(sub==='yt/transcript')return await hYtTranscript(request,env);
     if(sub.startsWith('admin/')){const ap=await verifyAdmin(request,env);if(!ap)return jr({error:'无管理员权限'},403);return await hAdmin(request,env,sub.replace(/^admin\//,''),ap);}
     return await hProxy(request,env,url,sub);
 }
