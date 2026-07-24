@@ -349,60 +349,10 @@ async function coreSend(opts) {
     }
 
     const visibleText = opts.visibleText;
-    const actualText = opts.actualText;
+    let actualText = opts.actualText;
     const attsForUser = opts.atts || [];
 
-    // 本轮上传的附件（可选物理打标）
-    let processedAtts = attsForUser;
-    if (_attChunk && typeof Chunker !== 'undefined') {
-        processedAtts = Chunker.chunkAttachments(attsForUser, {});
-    }
-
-    // 本轮附件：文本拼进正文，图片单独收集
-    let attachedText = '';
-    const imageAtts = [];
-    processedAtts.forEach(a => {
-        if (a.type === 'image') {
-            imageAtts.push(a);
-        } else if (a.text) {
-            attachedText += '\n\n=== 📎 附件：' + a.fileName + ' ===\n' + a.text + '\n=== 附件结束 ===\n';
-        }
-    });
-
-    // 知识库：文本进 system，图片单独收集
-    let kbText = '';
-    const kbImages = [];
-    if (c.knowledgeBase && c.knowledgeBase.length) {
-        c.knowledgeBase.forEach(k => {
-            if (k.type === 'image') {
-                kbImages.push({ fileName: k.name, dataUrl: k.dataUrl, type: 'image' });
-            } else if (k.text) {
-                let body = k.text;
-                if (_attChunk && typeof Chunker !== 'undefined') body = Chunker.chunk(k.text, {}).marked;
-                kbText += '\n\n=== 📚 知识库：' + k.name + ' ===\n' + body + '\n=== 知识库结束 ===\n';
-            }
-        });
-    }
-
-    // 参考框：按排序（文件在前）遍历，文本和图片分开收集
-    let refText = '';
-    const refImages = [];
-    sortedRefPool().forEach(r => {
-        if (!r.checked) return;
-        if (r.kind === 'file' && r.type === 'image' && r.dataUrl) {
-            refImages.push(r);
-            return;
-        }
-        if (!r.text) return;
-        let body = r.text;
-        if (r.kind === 'file' && _attChunk && typeof Chunker !== 'undefined') body = Chunker.chunk(r.text, {}).marked;
-        const tag = r.kind === 'file' ? '📎参考文件：' + r.name : '💬参考片段·' + r.name;
-        refText += '\n\n=== ' + tag + ' ===\n' + body + '\n=== 结束 ===\n';
-    });
-
-    const composedUserText = (attachedText ? attachedText + '\n' : '') + actualText;
-
-    // 落消息：用户可见消息 + AI占位消息
+    // 先落用户消息 + AI 占位气泡（立刻上屏）
     const userMsg = {
         id: gId(),
         role: 'user',
@@ -440,22 +390,97 @@ async function coreSend(opts) {
     renderSB();
     renderMode();
 
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.classList.add('stop');
+    sendBtn.textContent = '■';
+
+    const area = document.getElementById('msgsArea');
+    const lastMsgEl = area.querySelector('.msg:last-child .bub');
+
+    // ========== 联网阶段（在 AI 气泡里显示进度）==========
+    if (opts.needNet) {
+        let progressLines = [];
+        const onProgress = (t) => {
+            progressLines.push(t);
+            // 只保留最近若干行
+            if (progressLines.length > 6) progressLines = progressLines.slice(-6);
+            const shown = progressLines.join('\n');
+            aiMsg.content = shown;
+            if (lastMsgEl) UI.streamRender(lastMsgEl, shown);
+            UI.scrollToBottom(area);
+        };
+        onProgress('⏳ 正在联网获取资料...');
+
+        let netAugment = '';
+        try {
+            netAugment = await doNetworkAugment(opts.netQuery || actualText, onProgress);
+        } catch (e) {
+            onProgress('❌ 联网出错：' + e.message);
+        }
+
+        if (netAugment) {
+            actualText = '【以下是联网获取的参考资料，请依据它回答】' + netAugment + '\n\n【我的问题】\n' + (opts.netQuery || actualText);
+            userMsg._actual = actualText;
+        }
+        // 清空进度，气泡回到空白，准备接收 AI 回复
+        aiMsg.content = '';
+        if (lastMsgEl) UI.streamRender(lastMsgEl, '');
+    }
+
+    // 本轮上传附件（可选打标）
+    let processedAtts = attsForUser;
+    if (_attChunk && typeof Chunker !== 'undefined') {
+        processedAtts = Chunker.chunkAttachments(attsForUser, {});
+    }
+    let attachedText = '';
+    const imageAtts = [];
+    processedAtts.forEach(a => {
+        if (a.type === 'image') { imageAtts.push(a); }
+        else if (a.text) { attachedText += '\n\n=== 📎 附件：' + a.fileName + ' ===\n' + a.text + '\n=== 附件结束 ===\n'; }
+    });
+
+    // 知识库
+    let kbText = '';
+    const kbImages = [];
+    if (c.knowledgeBase && c.knowledgeBase.length) {
+        c.knowledgeBase.forEach(k => {
+            if (k.type === 'image') { kbImages.push({ fileName: k.name, dataUrl: k.dataUrl, type: 'image' }); }
+            else if (k.text) {
+                let body = k.text;
+                if (_attChunk && typeof Chunker !== 'undefined') body = Chunker.chunk(k.text, {}).marked;
+                kbText += '\n\n=== 📚 知识库：' + k.name + ' ===\n' + body + '\n=== 知识库结束 ===\n';
+            }
+        });
+    }
+
+    // 参考框
+    let refText = '';
+    const refImages = [];
+    sortedRefPool().forEach(r => {
+        if (!r.checked) return;
+        if (r.kind === 'file' && r.type === 'image' && r.dataUrl) { refImages.push(r); return; }
+        if (!r.text) return;
+        let body = r.text;
+        if (r.kind === 'file' && _attChunk && typeof Chunker !== 'undefined') body = Chunker.chunk(r.text, {}).marked;
+        const tag = r.kind === 'file' ? '📎参考文件：' + r.name : '💬参考片段·' + r.name;
+        refText += '\n\n=== ' + tag + ' ===\n' + body + '\n=== 结束 ===\n';
+    });
+
+    const composedUserText = (attachedText ? attachedText + '\n' : '') + actualText;
+
     // ========== 组装发送消息 ==========
     const sendMsgs = [];
 
-    // ① system：系统提示 + 知识库文本
     let systemContent = '';
     if (c.systemPrompt && c.systemPrompt.trim()) systemContent += c.systemPrompt.trim();
     if (kbText) systemContent += (systemContent ? '\n\n' : '') + '【以下是持续参考的知识库资料，请在回答时参考】' + kbText;
     if (systemContent) sendMsgs.push({ role: 'system', content: systemContent });
 
-    // ② 文本参考块（只放文本，稳定，缓存命中）
     if (refText) {
         sendMsgs.push({ role: 'user', content: '【以下是我提供的参考资料，请在回答时依据它】' + refText });
         sendMsgs.push({ role: 'assistant', content: '已收到你提供的参考资料，我会在回答中依据它。' });
     }
 
-    // ③ 图片参考块（只放图片，经常变动，放在文本块之后，变了也不连累文本缓存）
     if (refImages.length) {
         const refImgParts = [{ type: 'text', text: '【以下是我提供的参考图片，请在回答时依据它】' }];
         refImages.forEach(im => refImgParts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
@@ -463,7 +488,6 @@ async function coreSend(opts) {
         sendMsgs.push({ role: 'assistant', content: '已收到你提供的参考图片，我会在回答中依据它。' });
     }
 
-    // ④ 知识库图片块
     if (kbImages.length) {
         const kbParts = [{ type: 'text', text: '【以下是持续参考的知识库图片】' }];
         kbImages.forEach(im => kbParts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
@@ -471,7 +495,6 @@ async function coreSend(opts) {
         sendMsgs.push({ role: 'assistant', content: '已收到知识库图片。' });
     }
 
-    // ⑤ 历史对话 + 本轮问题
     c.messages.forEach((m) => {
         if (m === aiMsg) return;
         if (m._interrupted && !m.content) return;
@@ -491,15 +514,7 @@ async function coreSend(opts) {
 
     await saveNow();
 
-    const sendBtn = document.getElementById('sendBtn');
-    sendBtn.classList.add('stop');
-    sendBtn.textContent = '■';
-
-    const area = document.getElementById('msgsArea');
-    const lastMsgEl = area.querySelector('.msg:last-child .bub');
-    if (!lastMsgEl) return;
-
-    const updater = UI.makeStreamUpdater(lastMsgEl, area);
+    const updater = lastMsgEl ? UI.makeStreamUpdater(lastMsgEl, area) : null;
     let lastSaveTime = Date.now();
     const SAVE_INTERVAL = 3000;
 
@@ -507,7 +522,7 @@ async function coreSend(opts) {
         onStart: () => {},
         onDelta: (d, full) => {
             aiMsg.content = full;
-            updater(full);
+            if (updater) updater(full);
             if (Date.now() - lastSaveTime > SAVE_INTERVAL) {
                 lastSaveTime = Date.now();
                 scheduleSave();
@@ -538,7 +553,7 @@ async function coreSend(opts) {
             _streamCtrl = null;
             sendBtn.classList.remove('stop');
             sendBtn.textContent = '➤';
-            UI.fullRender(lastMsgEl, finalText);
+            if (lastMsgEl) UI.fullRender(lastMsgEl, finalText);
             await saveNow();
             renderMs();
             renderSB();
@@ -554,7 +569,7 @@ async function coreSend(opts) {
             _streamCtrl = null;
             sendBtn.classList.remove('stop');
             sendBtn.textContent = '➤';
-            UI.fullRender(lastMsgEl, full || '_（已中断）_');
+            if (lastMsgEl) UI.fullRender(lastMsgEl, full || '_（已中断）_');
             await saveNow();
             renderMs();
             toast('已停止');
@@ -567,78 +582,86 @@ async function coreSend(opts) {
             _streamCtrl = null;
             sendBtn.classList.remove('stop');
             sendBtn.textContent = '➤';
-            UI.fullRender(lastMsgEl, aiMsg.content);
+            if (lastMsgEl) UI.fullRender(lastMsgEl, aiMsg.content);
             await saveNow();
             toast('请求失败：' + err.message, 'er');
         },
     });
 }
 
+
 function reportLog(chat,profile,usage){try{const rounds=Math.floor((chat.messages||[]).filter(m=>m.role==='assistant').length);const tokens=usage?((usage.inputTokens||0)+(usage.outputTokens||0)):0;const token=Auth&&Auth.getToken?Auth.getToken():'';fetch('/api/log',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':token},body:JSON.stringify({chatName:chat.title||'',rounds,tokens,model:(profile&&profile.model)||''})}).catch(()=>{});}catch(e){}}
-/* ===== 联网前置处理（批次1）：读取链接 / 搜索 ===== */
-/* 返回一段"参考资料"文本；无内容返回空串 */
-async function doNetworkAugment(userText) {
+/* ===== 联网前置处理（方案B：带进度回调）=====
+   onProgress(text) 会在每一步被调用，用于实时更新气泡 */
+async function doNetworkAugment(userText, onProgress) {
     const readOn = (document.getElementById('netReadChk') || {}).checked;
     const searchOn = (document.getElementById('netSearchChk') || {}).checked;
     if (!readOn && !searchOn) return '';
 
     const token = (typeof Auth !== 'undefined' && Auth.getToken()) ? Auth.getToken() : '';
     let augment = '';
+    const report = (t) => { if (onProgress) onProgress(t); };
+
+    // 取域名（进度显示用）
+    const domainOf = (u) => {
+        try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u.slice(0, 30); }
+    };
 
     // ---- 读取链接 ----
     if (readOn) {
         const urls = (userText.match(/https?:\/\/[^\s，。、）)】]+/g) || []).slice(0, 3);
         for (const u of urls) {
+            const dom = domainOf(u);
             const isYt = /youtube\.com|youtu\.be/.test(u);
             const isYtChannel = isYt && /(\/@|\/channel\/|\/c\/|\/user\/)/.test(u);
             const isYtVideo = isYt && /(watch\?v=|youtu\.be\/|\/shorts\/)/.test(u);
 
             try {
                 if (isYtVideo) {
-                    toast('正在提取视频字幕...');
+                    report('📹 正在提取视频字幕：' + dom);
                     const resp = await fetch('/api/yt/transcript?url=' + encodeURIComponent(u), { headers: { 'X-Auth-Token': token } });
                     const data = await resp.json();
                     if (data.hasCaption && data.text) {
                         augment += '\n\n=== 📹 视频字幕：' + u + ' ===\n' + data.text + '\n=== 字幕结束 ===\n';
                     } else {
-                        toast('视频无字幕或提取失败', 'er');
+                        report('❌ 视频无字幕：' + dom);
                         augment += '\n\n=== 📹 视频：' + u + ' ===\n（' + (data.msg || '无字幕，无法提取') + '，此链接无有效内容）\n';
                     }
                 } else if (isYtChannel) {
-                    toast('正在读取 YouTube 频道...');
+                    report('📺 正在读取YouTube频道：' + dom);
                     const resp = await fetch('/api/yt/channel?url=' + encodeURIComponent(u), { headers: { 'X-Auth-Token': token } });
                     const data = await resp.json();
                     if (data.ok && data.text) {
                         augment += '\n\n=== 📺 YouTube频道：' + u + ' ===\n' + data.text + '\n=== 频道内容结束 ===\n';
                     } else {
-                        toast('频道读取失败：' + (data.error || '未知'), 'er');
+                        report('❌ 频道读取失败：' + dom);
                         augment += '\n\n=== 📺 频道读取失败：' + u + ' ===\n（' + (data.error || '未知') + '，请勿基于此链接编造内容）\n';
                     }
                 } else {
-                    toast('正在读取网页...');
+                    report('🔗 正在读取网页：' + dom);
                     const resp = await fetch('/api/web/read?url=' + encodeURIComponent(u), { headers: { 'X-Auth-Token': token } });
                     const data = await resp.json();
                     if (data.ok && data.text) {
                         augment += '\n\n=== 🔗 网页内容：' + u + ' ===\n' + data.text + '\n=== 网页结束 ===\n';
                     } else {
-                        toast('网页读取失败：' + (data.error || '未知'), 'er');
+                        report('❌ 网页读取失败：' + dom);
                         augment += '\n\n=== 🔗 网页读取失败：' + u + ' ===\n（' + (data.error || '未知') + '，请勿基于此链接编造内容）\n';
                     }
                 }
             } catch (e) {
-                toast('读取异常：' + e.message, 'er');
+                report('❌ 读取异常：' + dom);
                 augment += '\n\n=== 🔗 ' + u + ' 读取异常：' + e.message + ' ===\n';
             }
         }
-        if (!urls.length) toast('未在消息中识别到链接', 'er');
+        if (!urls.length) report('（未在消息中识别到链接）');
     }
 
-    // ---- 联网搜索（剔除 query 里的网址，避免跑偏）----
+    // ---- 联网搜索（剔除 query 里的网址）----
     if (searchOn) {
         const query = userText.replace(/https?:\/\/[^\s，。、）)】]+/g, '').trim();
         if (query) {
             try {
-                toast('正在联网搜索...');
+                report('🌐 正在联网搜索："' + query.slice(0, 20) + (query.length > 20 ? '…' : '') + '"');
                 const resp = await fetch('/api/web/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
@@ -654,10 +677,10 @@ async function doNetworkAugment(userText) {
                     s += '=== 搜索结束 ===\n';
                     augment += s;
                 } else {
-                    toast('搜索失败：' + (data.error || '未知'), 'er');
+                    report('❌ 搜索失败');
                 }
             } catch (e) {
-                toast('搜索异常：' + e.message, 'er');
+                report('❌ 搜索异常');
             }
         }
     }
@@ -693,32 +716,30 @@ async function send() {
         return;
     }
 
-    // 联网前置：读取链接 / 搜索（结果作为本轮参考资料拼进 actualText）
-    let netAugment = '';
-    if (text) {
-        netAugment = await doNetworkAugment(text);
-    }
+    // 是否需要联网（把联网留到 coreSend 里做，先上屏）
+    const readOn = (document.getElementById('netReadChk') || {}).checked;
+    const searchOn = (document.getElementById('netSearchChk') || {}).checked;
+    const needNet = !!(text && (readOn || searchOn));
 
     const userVisibleText = text || '(已上传 ' + _pendingAtts.length + ' 个附件)';
     const attsForUser = _pendingAtts.slice();
 
+    // 立刻清空输入框（用户即时反馈）
     inp.value = '';
     aRsz(inp);
     _pendingAtts = [];
     renderAttList();
 
-    // actualText = 联网资料 + 用户原文；visibleText 仍只显示用户原文
-    const actualText = netAugment
-        ? ('【以下是联网获取的参考资料，请依据它回答】' + netAugment + '\n\n【我的问题】\n' + text)
-        : text;
-
     await coreSend({
         visibleText: userVisibleText,
-        actualText: actualText,
+        actualText: text,
         atts: attsForUser,
         titleHint: text,
+        needNet: needNet,          // ← 联网标记
+        netQuery: text,            // ← 联网用的原始问题
     });
 }
+
 async function coreSendImage(prompt) {
     let c = curChat();
     if (!c) { newChat(); c = curChat(); }
