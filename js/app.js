@@ -93,34 +93,62 @@ function dateGroupOf(ts){if(!ts)return '更早';const now=new Date();const start
 function _makeChatLi(id){const c=S.chats[id];const li=document.createElement('li');li.className='ci'+(id===S.currentChatId?' act':'');li.draggable=true;li.dataset.cid=id;li.onclick=()=>switchChat(id);li.ondragstart=(e)=>{_dragChatId=id;li.classList.add('dragging');try{e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}catch(err){}};li.ondragend=()=>{_dragChatId=null;li.classList.remove('dragging');};const span=document.createElement('span');span.className='ct';span.textContent=c.title||'新对话';li.appendChild(span);const acts=document.createElement('div');acts.className='ia';const rb=document.createElement('button');rb.textContent='✏️';rb.onclick=(e)=>{e.stopPropagation();renameChat(id);};const db=document.createElement('button');db.textContent='🗑️';db.onclick=(e)=>{e.stopPropagation();delChat(id);};acts.appendChild(rb);acts.appendChild(db);li.appendChild(acts);return li;}
 function renderSB(){const search=(document.getElementById('schIn').value||'').toLowerCase();const pinList=document.getElementById('pinList'),chatList=document.getElementById('chatList'),arcList=document.getElementById('arcList'),folderArea=document.getElementById('folderArea');pinList.innerHTML='';chatList.innerHTML='';arcList.innerHTML='';if(folderArea)folderArea.innerHTML='';const order=S.chatOrder.filter(id=>S.chats[id]);function match(c){if(!search)return true;const hay=(c.title+' '+(c.messages||[]).map(m=>typeof m.content==='string'?m.content:'').join(' ')).toLowerCase();return hay.includes(search);}if(search){if(folderArea)folderArea.style.display='none';document.getElementById('pinLbl').style.display='none';document.getElementById('arcLbl').style.display='none';let n=0;order.forEach(id=>{const c=S.chats[id];if(!match(c))return;chatList.appendChild(_makeChatLi(id));n++;});if(!n)chatList.innerHTML='<li style="font-size:12px;color:var(--text2);padding:8px">无匹配对话</li>';renderBadge();return;}if(folderArea)folderArea.style.display='';let pinCount=0,arcCount=0;order.forEach(id=>{const c=S.chats[id];if(c.isArchived||!c.isPinned)return;pinList.appendChild(_makeChatLi(id));pinCount++;});if(folderArea){S.folders.forEach(f=>{const collapsed=!!S.folderCollapsed[f.id];const fEl=document.createElement('div');fEl.className='folder'+(collapsed?' collapsed':'');fEl.dataset.fid=f.id;fEl.ondragover=(e)=>{e.preventDefault();e.dataTransfer.dropEffect='move';fEl.classList.add('drop-hover');};fEl.ondragleave=()=>fEl.classList.remove('drop-hover');fEl.ondrop=(e)=>{e.preventDefault();fEl.classList.remove('drop-hover');const cid=_dragChatId||e.dataTransfer.getData('text/plain');if(cid)moveChatToFolder(cid,f.id);};const hdr=document.createElement('div');hdr.className='folder-hdr';const childCount=order.filter(id=>S.chats[id].folderId===f.id&&!S.chats[id].isArchived&&!S.chats[id].isPinned).length;hdr.innerHTML='<span class="fd-tog">'+(collapsed?'▶':'▼')+'</span><span class="fd-name">📁 '+esc(f.name)+'</span><span class="fd-cnt">'+childCount+'</span>';hdr.onclick=()=>toggleFolder(f.id);const fActs=document.createElement('div');fActs.className='fd-acts';const fr=document.createElement('button');fr.textContent='✏️';fr.onclick=(e)=>{e.stopPropagation();renameFolder(f.id);};const fdd=document.createElement('button');fdd.textContent='🗑️';fdd.onclick=(e)=>{e.stopPropagation();delFolder(f.id);};fActs.appendChild(fr);fActs.appendChild(fdd);hdr.appendChild(fActs);fEl.appendChild(hdr);const ul=document.createElement('ul');ul.className='cl folder-cl';if(!collapsed){order.forEach(id=>{const c=S.chats[id];if(c.isArchived||c.isPinned||c.folderId!==f.id)return;ul.appendChild(_makeChatLi(id));});}fEl.appendChild(ul);folderArea.appendChild(fEl);});}const ungrouped=order.filter(id=>{const c=S.chats[id];return !c.isArchived&&!c.isPinned&&!c.folderId;});const groups={'今天':[],'昨天':[],'本周':[],'更早':[]};ungrouped.forEach(id=>{groups[dateGroupOf(S.chats[id].updatedAt)].push(id);});chatList.classList.add('with-dategroup');['今天','昨天','本周','更早'].forEach(g=>{if(!groups[g].length)return;const key='dg_'+g;const collapsed=!!S.folderCollapsed[key];const lbl=document.createElement('div');lbl.className='dg-lbl';lbl.innerHTML='<span>'+(collapsed?'▶':'▼')+' '+g+'</span><span class="fd-cnt">'+groups[g].length+'</span>';lbl.onclick=()=>{S.folderCollapsed[key]=!S.folderCollapsed[key];scheduleSave();renderSB();};chatList.appendChild(lbl);if(!collapsed)groups[g].forEach(id=>chatList.appendChild(_makeChatLi(id)));});chatList.ondragover=(e)=>{e.preventDefault();e.dataTransfer.dropEffect='move';};chatList.ondrop=(e)=>{e.preventDefault();const cid=_dragChatId||e.dataTransfer.getData('text/plain');if(cid&&S.chats[cid]&&S.chats[cid].folderId)moveChatToFolder(cid,null);};order.forEach(id=>{const c=S.chats[id];if(!c.isArchived)return;arcList.appendChild(_makeChatLi(id));arcCount++;});document.getElementById('pinLbl').style.display=pinCount?'block':'none';document.getElementById('arcLbl').style.display=arcCount?'block':'none';renderBadge();}
 function renderBadge(){const p=curProfile();if(!p){document.getElementById('badge').innerHTML='⚠️ 无可用引擎，请联系管理员配置';return;}const originTag=p.origin==='public'?'📦公有':'👤私有';const protoTag=p.protocol==='anthropic'?' [Claude]':p.protocol==='gemini'?' [Gemini]':'';document.getElementById('badge').innerHTML='当前引擎: <strong>'+esc(p.name)+'</strong> '+originTag+esc(protoTag)+'<br>模型: '+esc(p.model||'（未选，去⚙️选择）');}
-/* 渲染快捷模型档按钮（批次3a） */
+/* 渲染快捷模型档按钮（切当前引擎的模型） */
 function renderQuickModelBar(){
     const bar=document.getElementById('quickModelBar');
     if(!bar)return;
-    // 只保留能在公有引擎里找到的档
-    const valid=(_quickModels||[]).filter(q=>q.engineId&&_publicEngines.some(e=>e.id===q.engineId));
-    if(!valid.length){bar.classList.remove('show');bar.style.display='none';bar.innerHTML='';return;}
+    const list=(_quickModels||[]).filter(q=>q&&q.label);
+    if(!list.length){bar.classList.remove('show');bar.style.display='none';bar.innerHTML='';return;}
     bar.style.display='inline-flex';
     bar.classList.add('show');
+    const cur=curProfile();
     let html='<span style="opacity:.7">⚡</span>';
-    valid.forEach(q=>{
-        const act=(S.currentEngId===q.engineId)?' act':'';
-        html+='<button class="qm-btn'+act+'" onclick="switchQuickModel(\''+esc(q.engineId)+'\')" title="'+esc(q.label)+'">'+esc(q.label)+'</button>';
+    list.forEach((q,i)=>{
+        // 高亮：当前引擎的模型 == 该档模型（默认档用引擎默认判断较难，仅模型档高亮）
+        let act='';
+        if(cur){
+            if(q.model&&cur.model===q.model)act=' act';
+        }
+        html+='<button class="qm-btn'+act+'" onclick="switchQuickModel('+i+')" title="'+esc(q.label)+(q.isImage?'（生图）':'')+'">'+esc(q.label)+(q.isImage?'🎨':'')+'</button>';
     });
     bar.innerHTML=html;
 }
 
-/* 点击快捷档：切换当前引擎 */
-function switchQuickModel(engineId){
-    const e=_publicEngines.find(x=>x.id===engineId);
-    if(!e){toast('该快捷模型不可用','er');return;}
-    S.currentEngId=engineId;
+/* 点击快捷档：切换当前引擎的模型（生图档同时转生图模式） */
+async function switchQuickModel(idx){
+    const q=(_quickModels||[])[idx];
+    if(!q){toast('该快捷档不可用','er');return;}
+    const p=curProfile();
+    if(!p){toast('请先选择一个引擎','er');openM('set');return;}
+
+    // 目标模型：填了用填的，留空=用引擎默认（公有引擎的 model 字段；私有同理）
+    const targetModel=(q.model&&q.model.trim())?q.model.trim():(p._defaultModel||p.model||'');
+    if(!targetModel){toast('该档未指定模型，且引擎无默认模型','er');return;}
+
+    // 记住引擎"出厂默认模型"，供"留空档"恢复用（只记一次）
+    if(!p._defaultModel)p._defaultModel=p.model;
+
+    p.model=targetModel;
+    p.engineType=q.isImage?'image':'chat';   // 生图档转生图模式，否则对话
+
+    // 公有引擎：把模型同步到后端 user_model（和"配置里改模型"一致）
+    if(p.origin==='public'){
+        try{
+            const token=Auth.getToken();
+            await fetch('/api/engines/setmodel',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':token},body:JSON.stringify({engineId:p.id,model:targetModel})});
+        }catch(e){}
+        // 同步本地 _publicEngines
+        const pe=_publicEngines.find(x=>x.id===p.id);
+        if(pe){pe.model=targetModel;pe.engineType=q.isImage?'image':'chat';if(!pe._defaultModel)pe._defaultModel=pe.model;}
+    }
+
     scheduleSave();
     renderQuickModelBar();
     renderBadge();
     renderEngTabs&&renderEngTabs();
-    toast('已切换：'+e.name);
+    toast('已切换：'+q.label+' → '+targetModel+(q.isImage?'（生图）':''));
 }
+
 
 /* ===== 参考框 ===== */
 function curRefPool(){const c=curChat();if(!c)return[];if(!Array.isArray(c.refPool))c.refPool=[];return c.refPool;}
