@@ -258,32 +258,9 @@ const Admin = (function () {
             const data = await apiCall('admin/config/get');
             const cfg = data.config || {};
 
-            let engs = [];
-            try {
-                const ed = await apiCall('admin/engines/list');
-                engs = ed.engines || [];
-            } catch (e) {}
-
             let quick = [];
             try { quick = JSON.parse(cfg.quickModels || '[]'); } catch (e) { quick = []; }
-            while (quick.length < 3) quick.push({ label: '', engineId: '' });
-
-            const engOptions = (selId) => {
-                let o = '<option value="">（不设置）</option>';
-                engs.forEach(e => {
-                    o += '<option value="' + esc(e.id) + '"' + (e.id === selId ? ' selected' : '') + '>'
-                        + esc((e.username ? e.username + ' / ' : '') + e.name + '（' + (e.model || '未设模型') + '）') + '</option>';
-                });
-                return o;
-            };
-
-            let quickHtml = '';
-            for (let i = 0; i < 3; i++) {
-                quickHtml += `<div class="fr" style="margin-bottom:6px">
-                    <div class="fg" style="flex:0 0 90px"><label>档${i + 1} 标签</label><input id="qm_label_${i}" value="${esc(quick[i].label || '')}" placeholder="如：快"></div>
-                    <div class="fg"><label>对应引擎</label><select id="qm_eng_${i}">${engOptions(quick[i].engineId || '')}</select></div>
-                </div>`;
-            }
+            if (!Array.isArray(quick)) quick = [];
 
             box.innerHTML = `<div style="max-width:520px">
                 <h4 style="font-size:13px;margin-bottom:12px">⚙️ 全局参数（所有用户生效）</h4>
@@ -294,34 +271,53 @@ const Admin = (function () {
                     <div style="font-size:11px;color:var(--text2);margin-top:4px">默认300。</div>
                 </div>
 
-                <div class="fg">
-                    <label>🌐 Tavily 搜索 Key</label>
-                    <input id="cfg_tavilyKey" type="text" value="${esc(cfg.tavilyKey || '')}" placeholder="tvly-...">
-                </div>
-
-                <div class="fg">
-                    <label>🔗 Jina Reader Key</label>
-                    <input id="cfg_jinaKey" type="text" value="${esc(cfg.jinaKey || '')}" placeholder="jina_...">
-                </div>
+                <div class="fg"><label>🌐 Tavily 搜索 Key</label><input id="cfg_tavilyKey" type="text" value="${esc(cfg.tavilyKey || '')}" placeholder="tvly-..."></div>
+                <div class="fg"><label>🔗 Jina Reader Key</label><input id="cfg_jinaKey" type="text" value="${esc(cfg.jinaKey || '')}" placeholder="jina_..."></div>
 
                 <div style="margin:16px 0;padding:12px;background:var(--pri-l);border-radius:8px">
-                    <h4 style="font-size:13px;margin-bottom:10px">⚡ 快捷模型3档（显示在用户输入框旁，点击秒切）</h4>
-                    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">只能选公有引擎。留空的档不显示。</div>
-                    ${quickHtml}
+                    <h4 style="font-size:13px;margin-bottom:6px">⚡ 快捷模型档（用户输入框旁，点击切换当前引擎的模型）</h4>
+                    <div style="font-size:11px;color:var(--text2);margin-bottom:10px">每档：标签 + 模型名（留空=用引擎默认模型）+ 是否生图。点击 ➕ 可增加档位。</div>
+                    <div id="quickModelList"></div>
+                    <button class="btn btn-s" onclick="Admin.addQuickModel()" style="margin-top:6px">➕ 添加一档</button>
                 </div>
 
                 <div class="fg">
-                    <label>⌨️ 快捷指令（用户输入框打"/"唤起，每行一条，格式：名称|内容模板）</label>
-                    <textarea id="cfg_quickCmds" rows="6" placeholder="翻译成英文|请把以下内容翻译成地道的英文：&#10;总结要点|请用要点列出以下内容的核心：&#10;润色|请润色以下文字，使其更流畅专业：">${esc(cfg.quickCmds || '')}</textarea>
-                    <div style="font-size:11px;color:var(--text2);margin-top:4px">每行一条，用竖线 | 分隔"名称"和"内容"。</div>
+                    <label>⌨️ 快捷指令（输入框打"/"唤起，每行一条：名称|内容模板）</label>
+                    <textarea id="cfg_quickCmds" rows="5" placeholder="翻译成英文|请把以下内容翻译成地道的英文：&#10;总结要点|请用要点列出以下内容的核心：">${esc(cfg.quickCmds || '')}</textarea>
                 </div>
 
                 <button class="btn btn-p" onclick="Admin.saveConfig()">💾 保存</button>
             </div>`;
+
+            _quickModelDraft = quick;
+            drawQuickModelList();
         } catch (e) {
             box.innerHTML = '<div style="color:#ef4444;padding:20px">加载失败：' + e.message + '</div>';
         }
     }
+
+    let _quickModelDraft = [];
+
+    function drawQuickModelList() {
+        const box = document.getElementById('quickModelList');
+        if (!box) return;
+        let html = '';
+        _quickModelDraft.forEach((q, i) => {
+            html += `<div class="fr" style="margin-bottom:6px;align-items:flex-end">
+                <div class="fg" style="flex:0 0 80px"><label>标签</label><input value="${esc(q.label || '')}" onchange="Admin.updQuickModel(${i},'label',this.value)" placeholder="如：快"></div>
+                <div class="fg"><label>模型名（留空=默认）</label><input value="${esc(q.model || '')}" onchange="Admin.updQuickModel(${i},'model',this.value)" placeholder="如 gpt-4o-mini"></div>
+                <div class="fg" style="flex:0 0 70px"><label>生图</label><input type="checkbox" ${q.isImage ? 'checked' : ''} onchange="Admin.updQuickModel(${i},'isImage',this.checked)" style="width:18px;height:18px;accent-color:var(--pri)"></div>
+                <button class="btn btn-s btn-d" onclick="Admin.delQuickModel(${i})" style="margin-bottom:14px">🗑️</button>
+            </div>`;
+        });
+        if (!_quickModelDraft.length) html = '<div style="font-size:11px;color:var(--text2);padding:6px 0">（暂无档位，点下方添加）</div>';
+        box.innerHTML = html;
+    }
+
+    function addQuickModel() { _quickModelDraft.push({ label: '', model: '', isImage: false }); drawQuickModelList(); }
+    function delQuickModel(i) { _quickModelDraft.splice(i, 1); drawQuickModelList(); }
+    function updQuickModel(i, field, val) { if (_quickModelDraft[i]) _quickModelDraft[i][field] = val; }
+
 
     function saveConfig() {
         const chunkSize = document.getElementById('cfg_chunkSize').value;
@@ -329,12 +325,11 @@ const Admin = (function () {
         const jinaKey = document.getElementById('cfg_jinaKey').value.trim();
         const quickCmds = document.getElementById('cfg_quickCmds').value;
 
-        const quick = [];
-        for (let i = 0; i < 3; i++) {
-            const label = (document.getElementById('qm_label_' + i).value || '').trim();
-            const engineId = document.getElementById('qm_eng_' + i).value;
-            if (label && engineId) quick.push({ label: label, engineId: engineId });
-        }
+        const quick = (_quickModelDraft || []).filter(q => (q.label || '').trim()).map(q => ({
+            label: (q.label || '').trim(),
+            model: (q.model || '').trim(),
+            isImage: !!q.isImage
+        }));
 
         apiCall('admin/config/save', 'POST', {
             config: { chunkSize, tavilyKey, jinaKey, quickModels: JSON.stringify(quick), quickCmds: quickCmds }
@@ -357,6 +352,7 @@ const Admin = (function () {
         toggleStep, addStep, delStep, moveStep, addSeg, delSeg,
         showSecurity, applySecurity, savePresets, exportPresetsJSON, importPresetsJSON,
         saveConfig,
+        addQuickModel, delQuickModel, updQuickModel,
     };
 })();
 
