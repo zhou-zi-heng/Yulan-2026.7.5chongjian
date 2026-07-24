@@ -411,7 +411,142 @@ async function coreSend(opts) {
 }
 
 function reportLog(chat,profile,usage){try{const rounds=Math.floor((chat.messages||[]).filter(m=>m.role==='assistant').length);const tokens=usage?((usage.inputTokens||0)+(usage.outputTokens||0)):0;const token=Auth&&Auth.getToken?Auth.getToken():'';fetch('/api/log',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':token},body:JSON.stringify({chatName:chat.title||'',rounds,tokens,model:(profile&&profile.model)||''})}).catch(()=>{});}catch(e){}}
-async function send(){if(_streamCtrl){_streamCtrl.abort();return;}const inp=document.getElementById('uIn');const text=(inp.value||'').trim();if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}const c=curChat();if(c&&chatMode(c)==='workflow'){if(text&&guardSensitive(text,'工作流·自由输入'))return;}const profile=curProfile();if(profile&&profile.engineType==='image'){if(!text){toast('请输入图片描述','er');return;}inp.value='';aRsz(inp);await coreSendImage(text);return;}const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';const attsForUser=_pendingAtts.slice();inp.value='';aRsz(inp);_pendingAtts=[];renderAttList();await coreSend({visibleText:userVisibleText,actualText:text,atts:attsForUser,titleHint:text});}
+/* ===== 联网前置处理（批次1）：读取链接 / 搜索 ===== */
+/* 返回一段"参考资料"文本；无内容返回空串 */
+async function doNetworkAugment(userText) {
+    const readOn = (document.getElementById('netReadChk') || {}).checked;
+    const searchOn = (document.getElementById('netSearchChk') || {}).checked;
+    if (!readOn && !searchOn) return '';
+
+    const token = (typeof Auth !== 'undefined' && Auth.getToken()) ? Auth.getToken() : '';
+    let augment = '';
+
+    // ---- 读取链接 ----
+    if (readOn) {
+        const urls = (userText.match(/https?:\/\/[^\s，。、）)】]+/g) || []).slice(0, 3);
+        for (const u of urls) {
+            const isYt = /youtube\.com|youtu\.be/.test(u);
+            const isYtChannel = isYt && /(\/@|\/channel\/|\/c\/|\/user\/)/.test(u);
+            const isYtVideo = isYt && /(watch\?v=|youtu\.be\/|\/shorts\/)/.test(u);
+
+            try {
+                if (isYtVideo) {
+                    toast('正在提取视频字幕...');
+                    const resp = await fetch('/api/yt/transcript?url=' + encodeURIComponent(u), { headers: { 'X-Auth-Token': token } });
+                    const data = await resp.json();
+                    if (data.hasCaption && data.text) {
+                        augment += '\n\n=== 📹 视频字幕：' + u + ' ===\n' + data.text + '\n=== 字幕结束 ===\n';
+                    } else {
+                        augment += '\n\n=== 📹 视频：' + u + ' ===\n（' + (data.msg || '无字幕，无法提取') + '）\n';
+                    }
+                } else if (isYtChannel) {
+                    toast('正在读取 YouTube 频道...');
+                    const resp = await fetch('/api/yt/channel?url=' + encodeURIComponent(u), { headers: { 'X-Auth-Token': token } });
+                    const data = await resp.json();
+                    if (data.ok && data.text) {
+                        augment += '\n\n=== 📺 YouTube频道：' + u + ' ===\n' + data.text + '\n=== 频道内容结束 ===\n';
+                    } else {
+                        augment += '\n\n=== 📺 频道：' + u + ' ===\n（读取失败：' + (data.error || '未知') + '）\n';
+                    }
+                } else {
+                    toast('正在读取网页...');
+                    const resp = await fetch('/api/web/read?url=' + encodeURIComponent(u), { headers: { 'X-Auth-Token': token } });
+                    const data = await resp.json();
+                    if (data.ok && data.text) {
+                        augment += '\n\n=== 🔗 网页内容：' + u + ' ===\n' + data.text + '\n=== 网页结束 ===\n';
+                    } else {
+                        augment += '\n\n=== 🔗 网页：' + u + ' ===\n（读取失败：' + (data.error || '未知') + '）\n';
+                    }
+                }
+            } catch (e) {
+                augment += '\n\n=== 🔗 ' + u + ' 读取异常：' + e.message + ' ===\n';
+            }
+        }
+        if (!urls.length) toast('未在消息中识别到链接', 'er');
+    }
+
+    // ---- 联网搜索 ----
+    if (searchOn && userText.trim()) {
+        try {
+            toast('正在联网搜索...');
+            const resp = await fetch('/api/web/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token },
+                body: JSON.stringify({ query: userText.trim() }),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                let s = '\n\n=== 🌐 联网搜索结果（关键词：' + data.query + '）===\n';
+                if (data.answer) s += '【摘要】' + data.answer + '\n\n';
+                (data.results || []).forEach((r, i) => {
+                    s += (i + 1) + '. ' + r.title + '\n   ' + r.url + '\n   ' + r.content + '\n\n';
+                });
+                s += '=== 搜索结束 ===\n';
+                augment += s;
+            } else {
+                toast('搜索失败：' + (data.error || '未知'), 'er');
+            }
+        } catch (e) {
+            toast('搜索异常：' + e.message, 'er');
+        }
+    }
+
+    return augment;
+}
+
+async function send() {
+    if (_streamCtrl) { _streamCtrl.abort(); return; }
+
+    const inp = document.getElementById('uIn');
+    const text = (inp.value || '').trim();
+
+    if (!text && !_pendingAtts.length) {
+        toast('请输入内容或上传附件', 'er');
+        return;
+    }
+
+    const c = curChat();
+    if (c && chatMode(c) === 'workflow') {
+        if (text && guardSensitive(text, '工作流·自由输入')) return;
+    }
+
+    const profile = curProfile();
+
+    // 生图引擎：走生图逻辑
+    if (profile && profile.engineType === 'image') {
+        if (!text) { toast('请输入图片描述', 'er'); return; }
+        inp.value = '';
+        aRsz(inp);
+        await coreSendImage(text);
+        return;
+    }
+
+    // 联网前置：读取链接 / 搜索（结果作为本轮参考资料拼进 actualText）
+    let netAugment = '';
+    if (text) {
+        netAugment = await doNetworkAugment(text);
+    }
+
+    const userVisibleText = text || '(已上传 ' + _pendingAtts.length + ' 个附件)';
+    const attsForUser = _pendingAtts.slice();
+
+    inp.value = '';
+    aRsz(inp);
+    _pendingAtts = [];
+    renderAttList();
+
+    // actualText = 联网资料 + 用户原文；visibleText 仍只显示用户原文
+    const actualText = netAugment
+        ? ('【以下是联网获取的参考资料，请依据它回答】' + netAugment + '\n\n【我的问题】\n' + text)
+        : text;
+
+    await coreSend({
+        visibleText: userVisibleText,
+        actualText: actualText,
+        atts: attsForUser,
+        titleHint: text,
+    });
+}
 async function coreSendImage(prompt) {
     let c = curChat();
     if (!c) { newChat(); c = curChat(); }
