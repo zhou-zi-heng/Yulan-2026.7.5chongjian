@@ -60,32 +60,45 @@ async function hVerify(request,env){
     return jr({ok:true,user:{username:pl.username,name:name,role:role,permissions:perm}});
 }
 
-/* 用户：公有引擎（含useCache） */
+/* 用户：公有引擎（含useCache、engineType） */
 async function hEngines(request,env){
     const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);
     try{
-        const rows=(await env.DB.prepare('SELECT id,name,protocol,model,user_model,use_cache,price_in,price_out,price_cache_read,price_cache_write FROM engines_public WHERE username=? ORDER BY name').bind(pl.username).all()).results||[];
-        const engines=rows.map(e=>({id:e.id,name:e.name,protocol:e.protocol,model:e.user_model||e.model||'',useCache:!!e.use_cache,priceIn:e.price_in,priceOut:e.price_out,priceCacheRead:e.price_cache_read,priceCacheWrite:e.price_cache_write,origin:'public'}));
+        const rows=(await env.DB.prepare('SELECT id,name,protocol,model,user_model,use_cache,engine_type,price_in,price_out,price_cache_read,price_cache_write FROM engines_public WHERE username=? ORDER BY name').bind(pl.username).all()).results||[];
+        const engines=rows.map(e=>({
+            id:e.id,
+            name:e.name,
+            protocol:e.protocol,
+            model:e.user_model||e.model||'',
+            useCache:!!e.use_cache,
+            engineType:e.engine_type||'chat',
+            priceIn:e.price_in,
+            priceOut:e.price_out,
+            priceCacheRead:e.price_cache_read,
+            priceCacheWrite:e.price_cache_write,
+            origin:'public'
+        }));
         return jr({ok:true,engines});
     }catch(e){
-        try{const rows=(await env.DB.prepare('SELECT id,name,protocol,model,price_in,price_out,price_cache_read,price_cache_write FROM engines_public WHERE username=? ORDER BY name').bind(pl.username).all()).results||[];const engines=rows.map(e=>({id:e.id,name:e.name,protocol:e.protocol,model:e.model||'',useCache:false,priceIn:e.price_in,priceOut:e.price_out,priceCacheRead:e.price_cache_read,priceCacheWrite:e.price_cache_write,origin:'public'}));return jr({ok:true,engines});}catch(e2){return jr({error:e2.message},500);}
+        try{
+            const rows=(await env.DB.prepare('SELECT id,name,protocol,model,price_in,price_out,price_cache_read,price_cache_write FROM engines_public WHERE username=? ORDER BY name').bind(pl.username).all()).results||[];
+            const engines=rows.map(e=>({
+                id:e.id,
+                name:e.name,
+                protocol:e.protocol,
+                model:e.model||'',
+                useCache:false,
+                engineType:'chat',
+                priceIn:e.price_in,
+                priceOut:e.price_out,
+                priceCacheRead:e.price_cache_read,
+                priceCacheWrite:e.price_cache_write,
+                origin:'public'
+            }));
+            return jr({ok:true,engines});
+        }catch(e2){return jr({error:e2.message},500);}
     }
 }
-async function hEngineModels(request,env,url){
-    const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);
-    const engId=url.searchParams.get('engineId');if(!engId)return jr({error:'缺engineId'},400);
-    try{const e=await env.DB.prepare('SELECT * FROM engines_public WHERE id=? AND username=?').bind(engId,pl.username).first();if(!e)return jr({error:'引擎不存在'},404);const key=await decKey(e.api_key,env.KEY_SECRET);let path='models';if(e.protocol==='anthropic')path='v1/models';if(e.protocol==='gemini')path='v1beta/models';const resp=await fetch(e.base_url.replace(/\/+$/,'')+'/'+path,{headers:{'Authorization':'Bearer '+key,'anthropic-version':'2023-06-01'}});if(!resp.ok)return jr({error:'HTTP '+resp.status},500);const data=await resp.json();let list=[];if(Array.isArray(data.data))list=data.data.map(m=>m.id||m.name).filter(Boolean);else if(Array.isArray(data.models))list=data.models.map(m=>(m.id||m.name||'').replace(/^models\//,'')).filter(Boolean);else if(Array.isArray(data))list=data.map(m=>m.id||m.name||m).filter(Boolean);return jr({ok:true,models:list.sort()});}catch(e){return jr({error:e.message},500);}
-}
-async function hSetModel(request,env){
-    const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);
-    let b;try{b=await request.json();}catch(e){return jr({error:'格式错误'},400);}
-    if(!b.engineId)return jr({error:'缺engineId'},400);
-    try{await env.DB.prepare('UPDATE engines_public SET user_model=? WHERE id=? AND username=?').bind(b.model||'',b.engineId,pl.username).run();return jr({ok:true});}catch(e){return jr({ok:false,error:e.message});}
-}
-async function hGetPresets(request,env){const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);try{const row=await env.DB.prepare('SELECT data FROM presets WHERE id=1').first();if(!row||!row.data)return jr({ok:true,presets:null});return jr({ok:true,presets:JSON.parse(row.data)});}catch(e){return jr({ok:true,presets:null});}}
-async function hLog(request,env){const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);let b;try{b=await request.json();}catch(e){return jr({error:'格式错误'},400);}try{await env.DB.prepare('INSERT INTO logs (username,chat_name,rounds,tokens,model,created_at) VALUES (?,?,?,?,?,?)').bind(pl.username,(b.chatName||'').slice(0,100),b.rounds||0,b.tokens||0,(b.model||'').slice(0,60),Date.now()).run();return jr({ok:true});}catch(e){return jr({ok:false});}}
-async function hGetConfig(request,env){const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);try{const rows=(await env.DB.prepare('SELECT key,value FROM global_config').all()).results||[];const cfg={};rows.forEach(r=>cfg[r.key]=r.value);return jr({ok:true,config:cfg});}catch(e){return jr({ok:true,config:{}});}}
-async function hGetModelPrices(request,env){const pl=await verifyUser(request,env);if(!pl)return jr({error:'未登录'},401);try{const rows=(await env.DB.prepare('SELECT model_name,price_in,price_out,price_cache_read,price_cache_write FROM model_prices').all()).results||[];const map={};rows.forEach(r=>map[r.model_name]={priceIn:r.price_in,priceOut:r.price_out,priceCacheRead:r.price_cache_read,priceCacheWrite:r.price_cache_write});return jr({ok:true,prices:map});}catch(e){return jr({ok:true,prices:{}});}}
 
 /* ==================== 联网能力（批次1） ==================== */
 
@@ -332,25 +345,48 @@ async function aEnginesList(request,env,url){
     const un=url.searchParams.get('username');
     try{
         let rows;
-        if(un)rows=(await env.DB.prepare('SELECT id,username,name,protocol,base_url,model,use_cache,price_in,price_out,price_cache_read,price_cache_write FROM engines_public WHERE username=? ORDER BY name').bind(un).all()).results||[];
-        else rows=(await env.DB.prepare('SELECT id,username,name,protocol,base_url,model,use_cache,price_in,price_out,price_cache_read,price_cache_write FROM engines_public ORDER BY username,name').all()).results||[];
-        const engs=rows.map(e=>({id:e.id,username:e.username,name:e.name,protocol:e.protocol,base:e.base_url,model:e.model,useCache:!!e.use_cache,hasKey:true,priceIn:e.price_in,priceOut:e.price_out,priceCR:e.price_cache_read,priceCW:e.price_cache_write}));
+        if(un)rows=(await env.DB.prepare('SELECT id,username,name,protocol,base_url,model,use_cache,engine_type,price_in,price_out,price_cache_read,price_cache_write FROM engines_public WHERE username=? ORDER BY name').bind(un).all()).results||[];
+        else rows=(await env.DB.prepare('SELECT id,username,name,protocol,base_url,model,use_cache,engine_type,price_in,price_out,price_cache_read,price_cache_write FROM engines_public ORDER BY username,name').all()).results||[];
+        const engs=rows.map(e=>({
+            id:e.id,
+            username:e.username,
+            name:e.name,
+            protocol:e.protocol,
+            base:e.base_url,
+            model:e.model,
+            useCache:!!e.use_cache,
+            engineType:e.engine_type||'chat',
+            hasKey:true,
+            priceIn:e.price_in,
+            priceOut:e.price_out,
+            priceCR:e.price_cache_read,
+            priceCW:e.price_cache_write
+        }));
         return jr({ok:true,engines:engs});
     }catch(e){return jr({error:e.message},500);}
 }
+
 async function aEnginesSave(request,env){
     let b;try{b=await request.json();}catch(e){return jr({error:'格式错误'},400);}
-    const un=(b.username||'').trim();if(!un)return jr({error:'缺账号'},400);if(!b.name)return jr({error:'引擎名必填'},400);
+    const un=(b.username||'').trim();if(!un)return jr({error:'缺账号'},400);
+    if(!b.name)return jr({error:'引擎名必填'},400);
     try{
         const id=b.id||('eng_'+un+'_'+Math.random().toString(36).slice(2,8));
         const ex=b.id?await env.DB.prepare('SELECT api_key FROM engines_public WHERE id=?').bind(b.id).first():null;
-        let keyStored;if(b.key&&b.key!=='******')keyStored=await encKey(b.key,env.KEY_SECRET);else if(ex)keyStored=ex.api_key;else keyStored='';
+        let keyStored;
+        if(b.key&&b.key!=='******')keyStored=await encKey(b.key,env.KEY_SECRET);
+        else if(ex)keyStored=ex.api_key;
+        else keyStored='';
         const uc=b.useCache?1:0;
-        if(ex)await env.DB.prepare('UPDATE engines_public SET name=?,protocol=?,base_url=?,api_key=?,model=?,use_cache=?,price_in=?,price_out=?,price_cache_read=?,price_cache_write=?,updated_at=? WHERE id=?').bind(b.name,b.protocol||'openai',b.base||'',keyStored,b.model||'',uc,b.priceIn||0,b.priceOut||0,b.priceCR||0,b.priceCW||0,Date.now(),b.id).run();
-        else await env.DB.prepare('INSERT INTO engines_public (id,username,name,protocol,base_url,api_key,model,use_cache,price_in,price_out,price_cache_read,price_cache_write,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,un,b.name,b.protocol||'openai',b.base||'',keyStored,b.model||'',uc,b.priceIn||0,b.priceOut||0,b.priceCR||0,b.priceCW||0,Date.now()).run();
+        const etype=(b.engineType==='image')?'image':'chat';
+        if(ex)
+            await env.DB.prepare('UPDATE engines_public SET name=?,protocol=?,base_url=?,api_key=?,model=?,use_cache=?,engine_type=?,price_in=?,price_out=?,price_cache_read=?,price_cache_write=?,updated_at=? WHERE id=?').bind(b.name,b.protocol||'openai',b.base||'',keyStored,b.model||'',uc,etype,b.priceIn||0,b.priceOut||0,b.priceCR||0,b.priceCW||0,Date.now(),b.id).run();
+        else
+            await env.DB.prepare('INSERT INTO engines_public (id,username,name,protocol,base_url,api_key,model,use_cache,engine_type,price_in,price_out,price_cache_read,price_cache_write,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,un,b.name,b.protocol||'openai',b.base||'',keyStored,b.model||'',uc,etype,b.priceIn||0,b.priceOut||0,b.priceCR||0,b.priceCW||0,Date.now()).run();
         return jr({ok:true,id});
     }catch(e){return jr({error:e.message},500);}
 }
+
 async function aEnginesDelete(request,env){let b;try{b=await request.json();}catch(e){return jr({error:'格式错误'},400);}if(!b.id)return jr({error:'缺id'},400);try{await env.DB.prepare('DELETE FROM engines_public WHERE id=?').bind(b.id).run();return jr({ok:true});}catch(e){return jr({error:e.message},500);}}
 
 async function aPresetsGet(env){try{const row=await env.DB.prepare('SELECT data FROM presets WHERE id=1').first();return jr({ok:true,presets:row&&row.data?JSON.parse(row.data):null});}catch(e){return jr({ok:true,presets:null});}}
