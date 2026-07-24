@@ -40,8 +40,8 @@ async function loadPublicEngines(){
     try{const token=(typeof Auth!=='undefined'&&Auth.getToken())?Auth.getToken():'';const resp=await fetch('/api/engines',{headers:{'X-Auth-Token':token}});const data=await resp.json();
         if(data.ok&&Array.isArray(data.engines)){
             _publicEngines=data.engines.map(e=>{const userParams=getPubEngineParams(e.id);
-                // ★ useCache 来自后端(超管配)，不被本地params覆盖
-                return Object.assign({engineType:'chat',cacheTTL:(e.protocol==='anthropic')?'1h':'5m',useTemp:false,temperature:0.7,useMax:false,max_tokens:4096,useTopP:false,top_p:1,useFreq:false,frequency_penalty:0},e,userParams,{useCache:!!e.useCache});});
+                // ★ useCache、engineType 来自后端(超管配)，不被本地params覆盖
+                return Object.assign({cacheTTL:(e.protocol==='anthropic')?'1h':'5m',useTemp:false,temperature:0.7,useMax:false,max_tokens:4096,useTopP:false,top_p:1,useFreq:false,frequency_penalty:0},e,userParams,{useCache:!!e.useCache,engineType:e.engineType||'chat'});});
         }
     }catch(e){console.warn('[loadPublicEngines]',e);_publicEngines=[];}
     if(!getEngineById(S.currentEngId)){const all=allEngines();if(all.length)S.currentEngId=all[0].id;}
