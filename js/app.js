@@ -5,9 +5,7 @@ let S = { profiles:{},chats:{},chatOrder:[],currentChatId:null,currentEngId:'',t
 let _saveTimer=null,_saveInProgress=null,_streamCtrl=null,_pendingAtts=[],_attContinuous=false,_exportMode='full';
 let _wfGroup='__all__',_wfPresetId=null,_wfAttContinuous=false,_attChunk=false,_refSelectMode=false,_selectedMsgs=[];
 var _wfAlertCtx=null;
-let _dragChatId=null,_publicEngines=[],_userPerm={},_modelPrices={},_quickModels=[],_quickCmds=[];
-
-
+let _dragChatId=null,_publicEngines=[],_userPerm={},_modelPrices={},_quickModels=[],_quickCmds=[],_quickOverride=null;
 
 const MODE_SUFFIX={free:'-自由',workflow:'-工作流'};
 function modeLabel(m){return m==='workflow'?'工作流':'自由';}
@@ -56,7 +54,7 @@ function isModeLocked(c){return !!(c&&c.modeLocked);}
 
 /* ===== 会话管理 ===== */
 function newChat(){const id=gId();const mode=(S.defaultMode==='workflow')?'workflow':'free';S.chats[id]={id,title:buildTitleWithSuffix('新对话',mode),messages:[],systemPrompt:'',knowledgeBase:[],isPinned:false,isArchived:false,createdAt:Date.now(),updatedAt:Date.now(),mode,modeLocked:false,folderId:null,refPool:[]};S.chatOrder.unshift(id);S.currentChatId=id;S.uiMode=(mode==='workflow')?'workflow':'chat';scheduleSave();renderAll();if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}}
-function switchChat(id){if(!S.chats[id])return;S.currentChatId=id;const c=S.chats[id];S.uiMode=(chatMode(c)==='workflow')?'workflow':'chat';_refSelectMode=false;_selectedMsgs=[];scheduleSave();renderAll();if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}}
+function switchChat(id){if(!S.chats[id])return;S.currentChatId=id;const c=S.chats[id];S.uiMode=(chatMode(c)==='workflow')?'workflow':'chat';_refSelectMode=false;_selectedMsgs=[];_quickOverride=null;scheduleSave();renderAll();if(IS_MOBILE){document.getElementById('sb').classList.remove('open');document.getElementById('sbOv').classList.remove('show');}}
 function delChat(id){if(!confirm('确认删除此对话？'))return;delete S.chats[id];S.chatOrder=S.chatOrder.filter(x=>x!==id);if(S.currentChatId===id)S.currentChatId=S.chatOrder[0]||null;scheduleSave();renderAll();}
 function renameChat(id){const c=S.chats[id];if(!c)return;const bare=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();const nv=prompt('重命名对话：',bare);if(nv!==null){c.title=buildTitleWithSuffix(nv,chatMode(c));c.updatedAt=Date.now();scheduleSave();renderAll();}}
 function updTitle(v){const c=curChat();if(!c)return;c.title=buildTitleWithSuffix(v,chatMode(c));c.updatedAt=Date.now();scheduleSave();const ti=document.getElementById('titleIn');if(ti)ti.value=c.title;renderSB();}
@@ -93,7 +91,7 @@ function dateGroupOf(ts){if(!ts)return '更早';const now=new Date();const start
 function _makeChatLi(id){const c=S.chats[id];const li=document.createElement('li');li.className='ci'+(id===S.currentChatId?' act':'');li.draggable=true;li.dataset.cid=id;li.onclick=()=>switchChat(id);li.ondragstart=(e)=>{_dragChatId=id;li.classList.add('dragging');try{e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}catch(err){}};li.ondragend=()=>{_dragChatId=null;li.classList.remove('dragging');};const span=document.createElement('span');span.className='ct';span.textContent=c.title||'新对话';li.appendChild(span);const acts=document.createElement('div');acts.className='ia';const rb=document.createElement('button');rb.textContent='✏️';rb.onclick=(e)=>{e.stopPropagation();renameChat(id);};const db=document.createElement('button');db.textContent='🗑️';db.onclick=(e)=>{e.stopPropagation();delChat(id);};acts.appendChild(rb);acts.appendChild(db);li.appendChild(acts);return li;}
 function renderSB(){const search=(document.getElementById('schIn').value||'').toLowerCase();const pinList=document.getElementById('pinList'),chatList=document.getElementById('chatList'),arcList=document.getElementById('arcList'),folderArea=document.getElementById('folderArea');pinList.innerHTML='';chatList.innerHTML='';arcList.innerHTML='';if(folderArea)folderArea.innerHTML='';const order=S.chatOrder.filter(id=>S.chats[id]);function match(c){if(!search)return true;const hay=(c.title+' '+(c.messages||[]).map(m=>typeof m.content==='string'?m.content:'').join(' ')).toLowerCase();return hay.includes(search);}if(search){if(folderArea)folderArea.style.display='none';document.getElementById('pinLbl').style.display='none';document.getElementById('arcLbl').style.display='none';let n=0;order.forEach(id=>{const c=S.chats[id];if(!match(c))return;chatList.appendChild(_makeChatLi(id));n++;});if(!n)chatList.innerHTML='<li style="font-size:12px;color:var(--text2);padding:8px">无匹配对话</li>';renderBadge();return;}if(folderArea)folderArea.style.display='';let pinCount=0,arcCount=0;order.forEach(id=>{const c=S.chats[id];if(c.isArchived||!c.isPinned)return;pinList.appendChild(_makeChatLi(id));pinCount++;});if(folderArea){S.folders.forEach(f=>{const collapsed=!!S.folderCollapsed[f.id];const fEl=document.createElement('div');fEl.className='folder'+(collapsed?' collapsed':'');fEl.dataset.fid=f.id;fEl.ondragover=(e)=>{e.preventDefault();e.dataTransfer.dropEffect='move';fEl.classList.add('drop-hover');};fEl.ondragleave=()=>fEl.classList.remove('drop-hover');fEl.ondrop=(e)=>{e.preventDefault();fEl.classList.remove('drop-hover');const cid=_dragChatId||e.dataTransfer.getData('text/plain');if(cid)moveChatToFolder(cid,f.id);};const hdr=document.createElement('div');hdr.className='folder-hdr';const childCount=order.filter(id=>S.chats[id].folderId===f.id&&!S.chats[id].isArchived&&!S.chats[id].isPinned).length;hdr.innerHTML='<span class="fd-tog">'+(collapsed?'▶':'▼')+'</span><span class="fd-name">📁 '+esc(f.name)+'</span><span class="fd-cnt">'+childCount+'</span>';hdr.onclick=()=>toggleFolder(f.id);const fActs=document.createElement('div');fActs.className='fd-acts';const fr=document.createElement('button');fr.textContent='✏️';fr.onclick=(e)=>{e.stopPropagation();renameFolder(f.id);};const fdd=document.createElement('button');fdd.textContent='🗑️';fdd.onclick=(e)=>{e.stopPropagation();delFolder(f.id);};fActs.appendChild(fr);fActs.appendChild(fdd);hdr.appendChild(fActs);fEl.appendChild(hdr);const ul=document.createElement('ul');ul.className='cl folder-cl';if(!collapsed){order.forEach(id=>{const c=S.chats[id];if(c.isArchived||c.isPinned||c.folderId!==f.id)return;ul.appendChild(_makeChatLi(id));});}fEl.appendChild(ul);folderArea.appendChild(fEl);});}const ungrouped=order.filter(id=>{const c=S.chats[id];return !c.isArchived&&!c.isPinned&&!c.folderId;});const groups={'今天':[],'昨天':[],'本周':[],'更早':[]};ungrouped.forEach(id=>{groups[dateGroupOf(S.chats[id].updatedAt)].push(id);});chatList.classList.add('with-dategroup');['今天','昨天','本周','更早'].forEach(g=>{if(!groups[g].length)return;const key='dg_'+g;const collapsed=!!S.folderCollapsed[key];const lbl=document.createElement('div');lbl.className='dg-lbl';lbl.innerHTML='<span>'+(collapsed?'▶':'▼')+' '+g+'</span><span class="fd-cnt">'+groups[g].length+'</span>';lbl.onclick=()=>{S.folderCollapsed[key]=!S.folderCollapsed[key];scheduleSave();renderSB();};chatList.appendChild(lbl);if(!collapsed)groups[g].forEach(id=>chatList.appendChild(_makeChatLi(id)));});chatList.ondragover=(e)=>{e.preventDefault();e.dataTransfer.dropEffect='move';};chatList.ondrop=(e)=>{e.preventDefault();const cid=_dragChatId||e.dataTransfer.getData('text/plain');if(cid&&S.chats[cid]&&S.chats[cid].folderId)moveChatToFolder(cid,null);};order.forEach(id=>{const c=S.chats[id];if(!c.isArchived)return;arcList.appendChild(_makeChatLi(id));arcCount++;});document.getElementById('pinLbl').style.display=pinCount?'block':'none';document.getElementById('arcLbl').style.display=arcCount?'block':'none';renderBadge();}
 function renderBadge(){const p=curProfile();if(!p){document.getElementById('badge').innerHTML='⚠️ 无可用引擎，请联系管理员配置';return;}const originTag=p.origin==='public'?'📦公有':'👤私有';const protoTag=p.protocol==='anthropic'?' [Claude]':p.protocol==='gemini'?' [Gemini]':'';document.getElementById('badge').innerHTML='当前引擎: <strong>'+esc(p.name)+'</strong> '+originTag+esc(protoTag)+'<br>模型: '+esc(p.model||'（未选，去⚙️选择）');}
-/* 渲染快捷模型档按钮（切当前引擎的模型） */
+/* 渲染快捷模型档按钮（临时切换，不污染引擎；对不上则全白） */
 function renderQuickModelBar(){
     const bar=document.getElementById('quickModelBar');
     if(!bar)return;
@@ -101,54 +99,57 @@ function renderQuickModelBar(){
     if(!list.length){bar.classList.remove('show');bar.style.display='none';bar.innerHTML='';return;}
     bar.style.display='inline-flex';
     bar.classList.add('show');
+
+    // 判断当前"生效模型"：有 override 用 override，否则用当前引擎的模型
     const cur=curProfile();
+    const effModel=_quickOverride?_quickOverride.model:(cur?cur.model:'');
+    const effIsImage=_quickOverride?_quickOverride.isImage:(cur?(cur.engineType==='image'):false);
+
     let html='<span style="opacity:.7">⚡</span>';
     list.forEach((q,i)=>{
-        // 高亮：当前引擎的模型 == 该档模型（默认档用引擎默认判断较难，仅模型档高亮）
-        let act='';
-        if(cur){
-            if(q.model&&cur.model===q.model)act=' act';
-        }
+        // 该档的目标模型（留空=引擎默认）
+        const qModel=(q.model&&q.model.trim())?q.model.trim():(cur?cur.model:'');
+        // 高亮条件：生效模型 == 该档模型 且 生图状态一致
+        const act=(qModel&&effModel===qModel&&effIsImage===!!q.isImage)?' act':'';
         html+='<button class="qm-btn'+act+'" onclick="switchQuickModel('+i+')" title="'+esc(q.label)+(q.isImage?'（生图）':'')+'">'+esc(q.label)+(q.isImage?'🎨':'')+'</button>';
     });
     bar.innerHTML=html;
 }
 
-/* 点击快捷档：切换当前引擎的模型（生图档同时转生图模式） */
-async function switchQuickModel(idx){
+/* 点击快捷档：临时切换本次会话的模型（不改引擎、不存后端） */
+function switchQuickModel(idx){
     const q=(_quickModels||[])[idx];
     if(!q){toast('该快捷档不可用','er');return;}
     const p=curProfile();
     if(!p){toast('请先选择一个引擎','er');openM('set');return;}
 
-    // 目标模型：填了用填的，留空=用引擎默认（公有引擎的 model 字段；私有同理）
-    const targetModel=(q.model&&q.model.trim())?q.model.trim():(p._defaultModel||p.model||'');
+    // 目标模型：填了用填的，留空=用当前引擎默认模型
+    const targetModel=(q.model&&q.model.trim())?q.model.trim():(p.model||'');
     if(!targetModel){toast('该档未指定模型，且引擎无默认模型','er');return;}
 
-    // 记住引擎"出厂默认模型"，供"留空档"恢复用（只记一次）
-    if(!p._defaultModel)p._defaultModel=p.model;
-
-    p.model=targetModel;
-    p.engineType=q.isImage?'image':'chat';   // 生图档转生图模式，否则对话
-
-    // 公有引擎：把模型同步到后端 user_model（和"配置里改模型"一致）
-    if(p.origin==='public'){
-        try{
-            const token=Auth.getToken();
-            await fetch('/api/engines/setmodel',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':token},body:JSON.stringify({engineId:p.id,model:targetModel})});
-        }catch(e){}
-        // 同步本地 _publicEngines
-        const pe=_publicEngines.find(x=>x.id===p.id);
-        if(pe){pe.model=targetModel;pe.engineType=q.isImage?'image':'chat';if(!pe._defaultModel)pe._defaultModel=pe.model;}
+    // 如果点的就是"引擎默认对话"状态，等于取消 override
+    if((!q.model||!q.model.trim())&&!q.isImage){
+        _quickOverride=null;
+    }else{
+        _quickOverride={model:targetModel,isImage:!!q.isImage};
     }
 
-    scheduleSave();
     renderQuickModelBar();
     renderBadge();
-    renderEngTabs&&renderEngTabs();
-    toast('已切换：'+q.label+' → '+targetModel+(q.isImage?'（生图）':''));
+    toast('本次使用：'+q.label+' → '+targetModel+(q.isImage?'（生图）':''));
 }
 
+/* 取当前"生效引擎快照"：叠加 quickOverride，返回一个临时对象（不改原引擎） */
+function effectiveProfile(){
+    const p=curProfile();
+    if(!p)return null;
+    if(!_quickOverride)return p;
+    // 克隆一份，只覆盖 model 和 engineType，其余（base/key/协议/缓存）沿用原引擎
+    const clone=Object.assign({},p);
+    clone.model=_quickOverride.model;
+    clone.engineType=_quickOverride.isImage?'image':'chat';
+    return clone;
+}
 
 /* ===== 参考框 ===== */
 function curRefPool(){const c=curChat();if(!c)return[];if(!Array.isArray(c.refPool))c.refPool=[];return c.refPool;}
@@ -189,7 +190,7 @@ function calcChatTotal(chat){const r={inputTokens:0,outputTokens:0,cacheReadToke
 function renderAll(){renderSB();renderMs();renderEngTabs();renderEngForm();renderCSForm();renderStorageInfo();renderArchiveInfo();renderRefPool();renderMode();renderQuickModelBar();}
 
 /* 引擎配置界面 */
-function renderEngTabs(){const tabs=document.getElementById('engTabs');if(!tabs)return;tabs.innerHTML='';allEngines().forEach(p=>{const b=document.createElement('button');b.className='tab'+(p.id===S.currentEngId?' act':'');b.textContent=(p.origin==='public'?'📦':'👤')+p.name;b.onclick=()=>{S.currentEngId=p.id;renderEngTabs();renderEngForm();renderSB();renderMs();scheduleSave();toast('已切换到：'+p.name);};tabs.appendChild(b);});}
+function renderEngTabs(){const tabs=document.getElementById('engTabs');if(!tabs)return;tabs.innerHTML='';allEngines().forEach(p=>{const b=document.createElement('button');b.className='tab'+(p.id===S.currentEngId?' act':'');b.textContent=(p.origin==='public'?'📦':'👤')+p.name;b.onclick=()=>{S.currentEngId=p.id;_quickOverride=null;renderEngTabs();renderEngForm();renderSB();renderMs();renderQuickModelBar();scheduleSave();toast('已切换到：'+p.name);};
 const MAX_TOKEN_PRESETS=[{label:'4K',val:4096},{label:'8K',val:8192},{label:'16K',val:16384},{label:'32K',val:32768},{label:'64K',val:65536},{label:'128K',val:131072},{label:'256K',val:262144},{label:'1M',val:1048576}];
 function renderEngForm(){const form=document.getElementById('engForm');if(!form)return;const p=curProfile();if(!p){form.innerHTML='<div style="padding:14px;background:#fff3cd;border-radius:8px;color:#856404;line-height:1.7">⚠️ 你当前没有可用引擎。<br>'+(Auth&&Auth.isAdmin&&Auth.isAdmin()?'请到 👑管理后台 → 🔌引擎 配置。':'请联系管理员配置引擎。')+'</div>';return;}const isPublic=p.origin==='public';if(isPublic)renderPublicEngForm(form,p);else renderPrivateEngForm(form,p);}
 function renderPublicEngForm(form,p){form.innerHTML='<div style="padding:10px;background:var(--pri-l);border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--text2)">📦 公司配置的公有引擎，密钥由公司管理。你可更换模型、调整下方参数。</div><div class="fg"><label>引擎名称</label><input type="text" value="'+esc(p.name)+'" disabled style="opacity:.7"></div><div class="fg"><label>📡 协议</label><input type="text" value="'+esc(p.protocol)+'" disabled style="opacity:.7"></div><div class="fg"><label>🌐 Base URL</label><input type="text" value="公司已配置（隐藏）" disabled style="opacity:.7"></div><div class="fg"><label>🔑 API Key</label><input type="text" value="•••• 公司已配置" disabled style="opacity:.7"></div><div class="fg"><label>🧠 模型 ID <span style="font-size:11px;color:var(--pri)">（可改可获取）</span></label><div style="display:flex;gap:6px"><input type="text" id="engModel" value="'+esc(p.model||'')+'" placeholder="点获取选择模型" style="flex:1"><button class="btn btn-s" onclick="fMdlsPublic(\''+esc(p.id)+'\')" id="fMdlsBtn" style="white-space:nowrap">🔄 获取</button></div><div id="mdlSel" style="display:none;margin-top:6px"></div></div>'+renderRuntimeParams(p)+'<div style="display:flex;gap:8px;margin-top:18px"><button class="btn btn-p" onclick="savePublicEng(\''+esc(p.id)+'\')">💾 保存我的设置</button></div>';bindEngEvents(p);}
@@ -363,7 +364,8 @@ async function coreSend(opts) {
     if (!c) { newChat(); c = curChat(); }
 
     const engId = opts.forceEngId || S.currentEngId;
-    const profile = getEngineById(engId);
+    const profile = opts.forceEngId ? getEngineById(engId) : (effectiveProfile() || getEngineById(engId));
+
 
     if (!profile) {
         toast('无可用引擎，请联系管理员', 'er');
@@ -744,7 +746,7 @@ async function send() {
         if (text && guardSensitive(text, '工作流·自由输入')) return;
     }
 
-    const profile = curProfile();
+    const profile = effectiveProfile();
 
     // 生图引擎：走生图逻辑
     if (profile && profile.engineType === 'image') {
@@ -783,7 +785,7 @@ async function coreSendImage(prompt) {
     let c = curChat();
     if (!c) { newChat(); c = curChat(); }
 
-    const profile = curProfile();
+    const profile = effectiveProfile();
     if (!profile) { toast('无可用引擎', 'er'); return; }
 
     // ===== 从描述词自动解析生图参数（比例 / 画质 / 格式）=====
