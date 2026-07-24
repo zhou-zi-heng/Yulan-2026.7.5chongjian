@@ -346,14 +346,13 @@ const UI = (function () {
     }
 
     /* ---------- 创建消息 DOM ---------- */
-    /* ---------- 创建消息 DOM ---------- */
+       /* ---------- 创建消息 DOM ---------- */
     function createMessageNode(msg, options) {
         const opts = options || {};
         const wrap = document.createElement('div');
         wrap.className = 'msg ' + msg.role;
         wrap.dataset.msgId = msg.id || '';
 
-        // 勾选模式：头像旁加勾选框
         if (opts.selectMode) {
             const selBox = document.createElement('div');
             selBox.className = 'msg-sel';
@@ -385,7 +384,7 @@ const UI = (function () {
             m.appendChild(mf);
         }
 
-        // 思考过程折叠区（AI消息且有 reasoning 时）
+        // 思考过程折叠区
         if (msg.role === 'assistant' && msg._reasoning) {
             const think = document.createElement('details');
             think.className = 'think-box';
@@ -408,6 +407,30 @@ const UI = (function () {
             bub.textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
         }
         m.appendChild(bub);
+
+        // 参考来源折叠区（联网时）
+        if (msg.role === 'assistant' && msg._sources && msg._sources.length) {
+            const src = document.createElement('details');
+            src.className = 'source-box';
+            const summary = document.createElement('summary');
+            summary.textContent = '📚 参考来源（' + msg._sources.length + '）· 点击展开核验';
+            src.appendChild(summary);
+            const list = document.createElement('div');
+            list.className = 'source-list';
+            msg._sources.forEach((s, i) => {
+                const item = document.createElement('div');
+                item.className = 'source-item';
+                const titleHtml = s.url
+                    ? '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.title || s.url) + '</a>'
+                    : esc(s.title || '');
+                item.innerHTML = '<div class="source-title">' + (i + 1) + '. ' + titleHtml + '</div>'
+                    + (s.url ? '<div class="source-url">' + esc(s.url) + '</div>' : '')
+                    + (s.snippet ? '<div class="source-snippet">' + esc(s.snippet) + '…</div>' : '');
+                list.appendChild(item);
+            });
+            src.appendChild(list);
+            m.appendChild(src);
+        }
 
         const mm = document.createElement('div');
         mm.className = 'mm';
@@ -443,7 +466,6 @@ const UI = (function () {
             mm.appendChild(dBtn);
         }
 
-        // 用户消息：编辑
         if (msg.role === 'user' && opts.onEdit) {
             const eBtn = document.createElement('button');
             eBtn.textContent = '✏️ 编辑';
@@ -451,7 +473,6 @@ const UI = (function () {
             mm.appendChild(eBtn);
         }
 
-        // AI消息：重答
         if (msg.role === 'assistant' && opts.onRegen) {
             const rBtn = document.createElement('button');
             rBtn.textContent = '🔄 重答';
@@ -459,7 +480,6 @@ const UI = (function () {
             mm.appendChild(rBtn);
         }
 
-        // AI消息：继续生成（仅中断的）
         if (msg.role === 'assistant' && msg._interrupted && msg.content && opts.onContinue) {
             const cBtn = document.createElement('button');
             cBtn.textContent = '▶ 继续';
@@ -471,6 +491,7 @@ const UI = (function () {
         wrap.appendChild(m);
         return { wrap: wrap, bub: bub };
     }
+
 
 
     /* ---------- 渲染整个消息列表 ---------- */
