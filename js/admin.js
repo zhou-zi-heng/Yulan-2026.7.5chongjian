@@ -257,7 +257,37 @@ const Admin = (function () {
         try {
             const data = await apiCall('admin/config/get');
             const cfg = data.config || {};
-            box.innerHTML = `<div style="max-width:460px">
+
+            // 拉所有公有引擎，供快捷档选择
+            let engs = [];
+            try {
+                const ed = await apiCall('admin/engines/list');
+                engs = ed.engines || [];
+            } catch (e) {}
+
+            // 解析已存的快捷档
+            let quick = [];
+            try { quick = JSON.parse(cfg.quickModels || '[]'); } catch (e) { quick = []; }
+            while (quick.length < 3) quick.push({ label: '', engineId: '' });
+
+            const engOptions = (selId) => {
+                let o = '<option value="">（不设置）</option>';
+                engs.forEach(e => {
+                    o += '<option value="' + esc(e.id) + '"' + (e.id === selId ? ' selected' : '') + '>'
+                        + esc((e.username ? e.username + ' / ' : '') + e.name + '（' + (e.model || '未设模型') + '）') + '</option>';
+                });
+                return o;
+            };
+
+            let quickHtml = '';
+            for (let i = 0; i < 3; i++) {
+                quickHtml += `<div class="fr" style="margin-bottom:6px">
+                    <div class="fg" style="flex:0 0 90px"><label>档${i + 1} 标签</label><input id="qm_label_${i}" value="${esc(quick[i].label || '')}" placeholder="如：快"></div>
+                    <div class="fg"><label>对应引擎</label><select id="qm_eng_${i}">${engOptions(quick[i].engineId || '')}</select></div>
+                </div>`;
+            }
+
+            box.innerHTML = `<div style="max-width:520px">
                 <h4 style="font-size:13px;margin-bottom:12px">⚙️ 全局参数（所有用户生效）</h4>
 
                 <div class="fg">
@@ -267,15 +297,19 @@ const Admin = (function () {
                 </div>
 
                 <div class="fg">
-                    <label>🌐 Tavily 搜索 Key <span style="font-size:11px;color:var(--text2)">（联网搜索用）</span></label>
+                    <label>🌐 Tavily 搜索 Key</label>
                     <input id="cfg_tavilyKey" type="text" value="${esc(cfg.tavilyKey || '')}" placeholder="tvly-...">
-                    <div style="font-size:11px;color:var(--text2);margin-top:4px">在 tavily.com 注册免费获取。</div>
                 </div>
 
                 <div class="fg">
-                    <label>🔗 Jina Reader Key <span style="font-size:11px;color:var(--text2)">（网页/YouTube读取用）</span></label>
+                    <label>🔗 Jina Reader Key</label>
                     <input id="cfg_jinaKey" type="text" value="${esc(cfg.jinaKey || '')}" placeholder="jina_...">
-                    <div style="font-size:11px;color:var(--text2);margin-top:4px">在 jina.ai 注册免费获取。留空则读取易被限流。</div>
+                </div>
+
+                <div style="margin:16px 0;padding:12px;background:var(--pri-l);border-radius:8px">
+                    <h4 style="font-size:13px;margin-bottom:10px">⚡ 快捷模型3档（显示在用户输入框旁，点击秒切）</h4>
+                    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">只能选公有引擎。留空的档不显示。建议按"经济/标准/旗舰"配。</div>
+                    ${quickHtml}
                 </div>
 
                 <button class="btn btn-p" onclick="Admin.saveConfig()">💾 保存</button>
@@ -285,18 +319,28 @@ const Admin = (function () {
         }
     }
 
-
     function saveConfig() {
         const chunkSize = document.getElementById('cfg_chunkSize').value;
         const tavilyKey = document.getElementById('cfg_tavilyKey').value.trim();
         const jinaKey = document.getElementById('cfg_jinaKey').value.trim();
-        apiCall('admin/config/save', 'POST', { config: { chunkSize, tavilyKey, jinaKey } })
+
+        const quick = [];
+        for (let i = 0; i < 3; i++) {
+            const label = (document.getElementById('qm_label_' + i).value || '').trim();
+            const engineId = document.getElementById('qm_eng_' + i).value;
+            if (label && engineId) quick.push({ label: label, engineId: engineId });
+        }
+
+        apiCall('admin/config/save', 'POST', {
+            config: { chunkSize, tavilyKey, jinaKey, quickModels: JSON.stringify(quick) }
+        })
             .then(() => {
                 toast('✅ 已保存');
                 if (typeof Chunker !== 'undefined') Chunker.setBlockSize(chunkSize);
             })
             .catch(e => toast('失败：' + e.message, 'er'));
     }
+
 
 
     return {
