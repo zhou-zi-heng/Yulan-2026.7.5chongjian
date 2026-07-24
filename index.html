@@ -326,9 +326,29 @@
 <!-- 模态框：导出 -->
 <div class="mo" id="mo-exp"><div class="md"><div class="md-h"><h2>📥 导出对话</h2><button class="md-x" onclick="closeM('exp')">×</button></div><div class="md-b">
     <div class="fg"><label>导出模式</label><select id="expFmt" onchange="updExp()"><option value="full">完整记录 (含提问)</option><option value="pure">纯享正文 (仅AI回答)</option></select></div>
-    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn btn-s" onclick="eTxt()">📄 TXT</button><button class="btn btn-s" onclick="eMd()">📑 Markdown</button><button class="btn btn-s" onclick="eHtml()">🎨 HTML</button><button class="btn btn-s" onclick="eDoc()">📘 Word</button></div>
+
+    <div class="fg">
+        <label style="display:flex;justify-content:space-between;align-items:center">
+            <span>选择要导出的消息（默认全选，可取消）</span>
+            <span style="font-weight:400">
+                <a href="javascript:;" onclick="expSelectAll(true)" style="color:var(--pri);margin-right:8px">全选</a>
+                <a href="javascript:;" onclick="expSelectAll(false)" style="color:var(--pri)">全不选</a>
+            </span>
+        </label>
+        <div id="expMsgList" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg)"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="btn btn-s" onclick="eTxt()">📝 TXT</button>
+        <button class="btn btn-s" onclick="eMd()">📑 Markdown</button>
+        <button class="btn btn-s" onclick="eHtml()">🎨 HTML</button>
+        <button class="btn btn-s btn-p" onclick="eDocx()">📘 Word</button>
+        <button class="btn btn-s" onclick="ePdf()">📄 PDF</button>
+    </div>
+
     <div class="fg"><label>⚠️ 防拦截备用复制区</label><textarea id="expTA" rows="6" style="font-size:12px" readonly></textarea><button class="btn btn-s" onclick="cpExp()" style="margin-top:6px">📋 全选复制</button></div>
 </div></div></div>
+
 
 <!-- 模态框：快照迁移 -->
 <div class="mo" id="mo-snap"><div class="md"><div class="md-h"><h2>📦 快照迁移</h2><button class="md-x" onclick="closeM('snap')">×</button></div><div class="md-b">
@@ -383,6 +403,7 @@
 <script src="js/chunker.js?v=3.0.0"></script>
 <script src="js/upload.js?v=3.0.0"></script>
 <script src="js/snapshot.js?v=3.0.0"></script>
+<script src="js/exporter.js?v=3.0.0"></script>
 <script src="js/archive.js?v=3.0.0"></script>
 <script src="js/workflow.js?v=3.0.0"></script>
 <script src="js/auth.js?v=3.0.0"></script>
