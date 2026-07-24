@@ -193,6 +193,18 @@ function toggleChunk(){_attChunk=!_attChunk;const btn=document.getElementById('c
 function previewChunkObj(att){if(typeof Chunker==='undefined'){toast('打标引擎未加载','er');return;}if(!att||!att.text){toast('该附件无文本','er');return;}const ta=document.getElementById('chunkPreviewTA');if(ta)ta.value=Chunker.previewOne(att);const h=document.querySelector('#mo-chunk-preview .md-h h2');if(h)h.textContent='📐 打标预览';openM('chunk-preview');}
 function copyChunkPreview(){const ta=document.getElementById('chunkPreviewTA');if(!ta||!ta.value){toast('无内容','er');return;}try{navigator.clipboard.writeText(ta.value).then(()=>toast('✅ 已复制'));}catch(e){ta.select();document.execCommand('copy');toast('✅ 已复制');}}
 function previewSend(){const c=curChat();if(!c){toast('无对话','er');return;}let out='',sys='';if(c.systemPrompt&&c.systemPrompt.trim())sys+=c.systemPrompt.trim();let kbText='';if(c.knowledgeBase&&c.knowledgeBase.length){c.knowledgeBase.forEach(k=>{if(k.text)kbText+='\n[知识库]'+k.name+'（'+cntW(k.text)+'字）';});}if(kbText)sys+='\n【知识库资料】'+kbText;out+='━━━ SYSTEM ━━━\n'+(sys||'（空）')+'\n\n';let ref='';sortedRefPool().forEach(r=>{if(!r.checked)return;if(r.kind==='file'&&r.type==='image'){ref+='\n[图片] '+r.name;return;}if(!r.text)return;let body=r.text;if(r.kind==='file'&&_attChunk&&typeof Chunker!=='undefined')body=Chunker.chunk(r.text,{}).marked;ref+='\n=== '+(r.kind==='file'?'📎'+r.name:'💬'+r.name)+' ===\n'+body+'\n';});out+='━━━ 参考框（勾选项，文件在前）━━━\n'+(ref||'（无勾选项）')+'\n\n';const inpVal=(document.getElementById('uIn')?document.getElementById('uIn').value:'')||'（输入框当前为空）';out+='━━━ 本轮问题 ━━━\n'+inpVal+'\n\n━━━ 说明 ━━━\n实际发送还含历史对话。工作流隐藏指令不展示。';const ta=document.getElementById('chunkPreviewTA');if(ta)ta.value=out;const h=document.querySelector('#mo-chunk-preview .md-h h2');if(h)h.textContent='📤 发送内容预览';openM('chunk-preview');}
+/* 提取思考过程：优先流式reasoning，其次<think>标签 */
+function extractReasoning(fullText, streamReasoning) {
+    if (streamReasoning && streamReasoning.trim()) return streamReasoning.trim();
+    const m = String(fullText || '').match(/<think>([\s\S]*?)<\/think>/i);
+    if (m) return m[1].trim();
+    return '';
+}
+
+/* 去掉正文里的<think>标签部分 */
+function stripThinkTag(fullText) {
+    return String(fullText || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
 
 /* ===== 核心发送 ===== */
 async function coreSend(opts) {
@@ -380,8 +392,9 @@ async function coreSend(opts) {
                 scheduleSave();
             }
         },
-        onDone: async (full, usage) => {
-            let finalText = full;
+        onDone: async (full, usage, reasoning) => {
+            aiMsg._reasoning = extractReasoning(full, reasoning);
+            let finalText = stripThinkTag(full);
             if (opts._wfLeakCheck && typeof Workflow !== 'undefined' && Workflow.isLeak(full)) {
                 const masked = '\u2588'.repeat(Math.min(Math.max(full.length, 20), 200));
                 finalText = '⚠️ 检测到尝试获取受保护内容，本次输出已被屏蔽。\n\n' + masked;
@@ -411,7 +424,8 @@ async function coreSend(opts) {
             reportLog(c, profile, usage);
             if (typeof Archive !== 'undefined') Archive.notifyActivity();
         },
-        onAbort: async (full, usage) => {
+        onAbort: async (full, usage, reasoning) => {
+            aiMsg._reasoning = extractReasoning(full, reasoning);
             aiMsg.content = full;
             aiMsg._streaming = false;
             aiMsg._interrupted = true;
