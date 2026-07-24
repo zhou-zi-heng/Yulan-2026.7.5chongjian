@@ -695,7 +695,7 @@ async function regenerate(msg){const c=curChat();if(!c)return;const idx=c.messag
 
 function aRsz(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,130)+'px';}
 function hKey(e){if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}}
-function openM(n){const m=document.getElementById('mo-'+n);if(!m)return;m.classList.add('show');if(n==='cs'){renderCSForm();renderKBList();}if(n==='set'){renderEngTabs();renderEngForm();renderStorageInfo();renderGlobalSettings();}if(n==='exp')updExpPreview();if(n==='snap'&&IS_IOS){const w=document.getElementById('iosW');if(w)w.style.display='block';}}
+function openM(n){const m=document.getElementById('mo-'+n);if(!m)return;m.classList.add('show');if(n==='cs'){renderCSForm();renderKBList();}if(n==='set'){renderEngTabs();renderEngForm();renderStorageInfo();renderGlobalSettings();}if(n==='exp'){renderExpMsgList();updExpPreview();}if(n==='snap'&&IS_IOS){const w=document.getElementById('iosW');if(w)w.style.display='block';}}
 function closeM(n){const m=document.getElementById('mo-'+n);if(m)m.classList.remove('show');}
 function togSB(){document.getElementById('sb').classList.toggle('open');document.getElementById('sbOv').classList.toggle('show');}
 function togAtt(){document.getElementById('attPan').classList.toggle('show');}
@@ -711,14 +711,182 @@ function eSnap(){const includeKey=confirm('导出快照\n\n✅=含私有引擎Ke
 async function iSnap(inputEl){if(!inputEl.files||!inputEl.files.length)return;const file=inputEl.files[0];try{await DB.saveRollbackBackup(S);}catch(e){}const mode=confirm('✅=替换模式\n❌=合并模式');try{const {state:imp,source}=await Snapshot.importFromFile(file);let finalState;if(mode){const {state:ps}=Snapshot.protectLocalKeys(imp,S);finalState=ps;}else{const {state:ps}=Snapshot.protectLocalKeys(imp,S);finalState=Snapshot.mergeStates(S,ps);}S=finalState;if(!Array.isArray(S.folders))S.folders=[];if(!S.folderCollapsed)S.folderCollapsed={};if(!S.defaultMode)S.defaultMode='free';for(const cid in S.chats){if(!Array.isArray(S.chats[cid].refPool))S.chats[cid].refPool=[];}S._engineMigrated=true;fixProfileFields();await saveNow();await Snapshot.snapNow(S);renderAll();toast('✅ 导入成功（'+source+'）');closeM('snap');}catch(e){toast('导入失败：'+e.message,'er');}inputEl.value='';}
 async function rollbackImport(){let bak=null;try{bak=await DB.loadRollbackBackup();}catch(e){}if(!bak||!bak.state){toast('暂无可恢复的备份','er');return;}const t=bak.ts?new Date(bak.ts).toLocaleString():'未知';if(!confirm('⏪ 恢复到上次导入前？\n备份时间：'+t))return;try{S=bak.state;if(!Array.isArray(S.folders))S.folders=[];if(!S.folderCollapsed)S.folderCollapsed={};if(!S.defaultMode)S.defaultMode='free';for(const cid in S.chats){if(!Array.isArray(S.chats[cid].refPool))S.chats[cid].refPool=[];}S._engineMigrated=true;fixProfileFields();if(!S.currentChatId||!S.chats[S.currentChatId])S.currentChatId=(S.chatOrder&&S.chatOrder[0])||null;await saveNow();await DB.clearRollbackBackup();renderAll();toast('✅ 已恢复');closeM('snap');}catch(e){toast('恢复失败：'+e.message,'er');}}
 function updExp(){_exportMode=document.getElementById('expFmt').value;updExpPreview();}
-function buildExportContent(chatArg,modeArg){const c=chatArg||curChat();const mode=modeArg||_exportMode;if(!c||!c.messages||!c.messages.length)return{plain:'（无内容）',html:'<p>（无内容）</p>',title:'空对话',md:'（无内容）'};const title=c.title||'对话记录';const isPure=mode==='pure';let plain='',html='',mdOut='';if(!isPure){plain='【'+title+'】\n导出时间：'+new Date().toLocaleString()+'\n\n';mdOut='# '+title+'\n\n> 导出时间：'+new Date().toLocaleString()+'\n\n';html='<h1>'+esc(title)+'</h1><p style="color:#888;font-size:12px">导出时间：'+esc(new Date().toLocaleString())+'</p><hr>';}c.messages.forEach((m)=>{const text=typeof m.content==='string'?m.content:JSON.stringify(m.content);if(isPure){if(m.role==='assistant'&&text){plain+=text+'\n\n';mdOut+=text+'\n\n---\n\n';html+=UI.renderMarkdown(text)+'<hr style="border:none;border-top:1px dashed #ccc;margin:24px 0">';}}else{const roleName=m.role==='user'?'👤 我':(m.role==='assistant'?'🤖 AI':'⚙️ 系统');plain+='【'+roleName+'】'+(m._time?' '+m._time:'')+'\n'+text+'\n\n';mdOut+='## '+roleName+(m._time?' ('+m._time+')':'')+'\n\n'+text+'\n\n';html+='<div style="margin:18px 0;padding:12px 16px;background:'+(m.role==='user'?'#e3f2fd':'#f5f5f5')+';border-radius:8px"><strong>'+esc(roleName)+'</strong>'+(m._time?' <span style="color:#888;font-size:12px">'+esc(m._time)+'</span>':'')+'<div style="margin-top:6px">'+(m.role==='assistant'?UI.renderMarkdown(text):'<pre style="white-space:pre-wrap;font-family:inherit;margin:0">'+esc(text)+'</pre>')+'</div></div>';}});return{plain:plain.trim(),html,title,md:mdOut.trim()};}
-function buildArchiveHtml(chat){const {html,title}=buildExportContent(chat,'full');return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(title)+'</title><style>body{font-family:-apple-system,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto}table{border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 12px}img{max-width:100%}</style></head><body>'+html+'</body></html>';}
-function updExpPreview(){const ta=document.getElementById('expTA');if(!ta)return;ta.value=buildExportContent().plain;}
-function eTxt(){const {plain,title}=buildExportContent();dl(plain,(title||'chat')+'-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.txt','text/plain');toast('✅ TXT 已导出');}
-function eMd(){const {md,title}=buildExportContent();dl(md,(title||'chat')+'-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.md','text/markdown');toast('✅ Markdown 已导出');}
-function eHtml(){const c=curChat();const full=buildArchiveHtml(c);const {title}=buildExportContent();dl(full,(title||'chat')+'-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.html','text/html');toast('✅ HTML 已导出');}
-function eDoc(){const {html,title}=buildExportContent();const full='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>'+esc(title)+'</title></head><body>'+html+'</body></html>';dl(full,(title||'chat')+'-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.doc','application/msword');toast('✅ Word 已导出');}
-function cpExp(){const ta=document.getElementById('expTA');if(!ta||!ta.value){toast('无内容','er');return;}ta.select();try{document.execCommand('copy');toast('✅ 已复制');}catch(e){navigator.clipboard.writeText(ta.value).then(()=>toast('✅ 已复制'));}}
+/* ===== 导出（批次2a：勾选式 + 真docx + PDF）===== */
+
+let _expChecked = {}; // { msgId: true/false }
+
+/* 渲染导出弹窗里的消息勾选列表（默认全选） */
+function renderExpMsgList() {
+    const box = document.getElementById('expMsgList');
+    if (!box) return;
+    const c = curChat();
+    if (!c || !c.messages || !c.messages.length) {
+        box.innerHTML = '<div style="font-size:12px;color:var(--text2)">（无消息）</div>';
+        return;
+    }
+    _expChecked = {};
+    let html = '';
+    c.messages.forEach(m => {
+        _expChecked[m.id] = true; // 默认全选
+        const icon = m.role === 'user' ? '👤' : (m.role === 'assistant' ? '🤖' : '⚙️');
+        let preview = typeof m.content === 'string' ? m.content : '[多媒体内容]';
+        preview = preview.replace(/\n/g, ' ').replace(/!\[[^\]]*\]\([^)]*\)/g, '[图]').slice(0, 30);
+        html += '<label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;cursor:pointer">'
+            + '<input type="checkbox" data-mid="' + m.id + '" checked onchange="expToggle(this)" style="accent-color:var(--pri)">'
+            + '<span>' + icon + ' ' + esc(preview) + (preview.length >= 30 ? '…' : '') + '</span>'
+            + '</label>';
+    });
+    box.innerHTML = html;
+}
+
+function expToggle(el) {
+    const mid = el.getAttribute('data-mid');
+    _expChecked[mid] = el.checked;
+    updExpPreview();
+}
+
+function expSelectAll(val) {
+    document.querySelectorAll('#expMsgList input[type="checkbox"]').forEach(cb => {
+        cb.checked = val;
+        _expChecked[cb.getAttribute('data-mid')] = val;
+    });
+    updExpPreview();
+}
+
+/* 取勾选后的消息列表 */
+function getCheckedMessages() {
+    const c = curChat();
+    if (!c || !c.messages) return [];
+    return c.messages.filter(m => _expChecked[m.id]);
+}
+
+/* 构建导出内容（基于勾选的消息） */
+function buildExportContent(chatArg, modeArg) {
+    const c = chatArg || curChat();
+    const mode = modeArg || _exportMode;
+    const msgs = (chatArg && chatArg._forceAll) ? chatArg.messages : getCheckedMessages();
+
+    if (!c || !msgs || !msgs.length) {
+        return { plain: '（无内容）', html: '<p>（无内容）</p>', title: '空对话', md: '（无内容）' };
+    }
+
+    const title = c.title || '对话记录';
+    const isPure = mode === 'pure';
+    let plain = '', html = '', mdOut = '';
+
+    if (!isPure) {
+        plain = '【' + title + '】\n导出时间：' + new Date().toLocaleString() + '\n\n';
+        mdOut = '# ' + title + '\n\n> 导出时间：' + new Date().toLocaleString() + '\n\n';
+        html = '<h1>' + esc(title) + '</h1><p style="color:#888;font-size:12px">导出时间：' + esc(new Date().toLocaleString()) + '</p><hr>';
+    }
+
+    msgs.forEach(m => {
+        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        if (isPure) {
+            if (m.role === 'assistant' && text) {
+                plain += text + '\n\n';
+                mdOut += text + '\n\n---\n\n';
+                html += UI.renderMarkdown(text) + '<hr style="border:none;border-top:1px dashed #ccc;margin:24px 0">';
+            }
+        } else {
+            const roleName = m.role === 'user' ? '👤 我' : (m.role === 'assistant' ? '🤖 AI' : '⚙️ 系统');
+            plain += '【' + roleName + '】' + (m._time ? ' ' + m._time : '') + '\n' + text + '\n\n';
+            mdOut += '## ' + roleName + (m._time ? ' (' + m._time + ')' : '') + '\n\n' + text + '\n\n';
+            html += '<div style="margin:18px 0;padding:12px 16px;background:' + (m.role === 'user' ? '#e3f2fd' : '#f5f5f5') + ';border-radius:8px">'
+                + '<strong>' + esc(roleName) + '</strong>' + (m._time ? ' <span style="color:#888;font-size:12px">' + esc(m._time) + '</span>' : '')
+                + '<div style="margin-top:6px">' + (m.role === 'assistant' ? UI.renderMarkdown(text) : '<pre style="white-space:pre-wrap;font-family:inherit;margin:0">' + esc(text) + '</pre>') + '</div></div>';
+        }
+    });
+
+    return { plain: plain.trim(), html: html, title: title, md: mdOut.trim() };
+}
+
+/* 供 docx 用：把勾选消息整理成 sections */
+function buildExportSections() {
+    const msgs = getCheckedMessages();
+    const isPure = _exportMode === 'pure';
+    const sections = [];
+    msgs.forEach(m => {
+        const text = typeof m.content === 'string' ? m.content : '[多媒体内容]';
+        if (isPure) {
+            if (m.role === 'assistant' && text) sections.push({ roleLabel: '', content: text });
+        } else {
+            const roleName = m.role === 'user' ? '👤 我' : (m.role === 'assistant' ? '🤖 AI' : '⚙️ 系统');
+            sections.push({ roleLabel: roleName + (m._time ? ' (' + m._time + ')' : ''), content: text });
+        }
+    });
+    return sections;
+}
+
+function buildArchiveHtml(chat) {
+    // 存档用：强制全部消息
+    const { html, title } = buildExportContent(Object.assign({}, chat, { _forceAll: true }), 'full');
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(title) + '</title><style>body{font-family:-apple-system,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto}table{border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 12px}img{max-width:100%}</style></head><body>' + html + '</body></html>';
+}
+
+function updExp() { _exportMode = document.getElementById('expFmt').value; updExpPreview(); }
+
+function updExpPreview() {
+    const ta = document.getElementById('expTA');
+    if (!ta) return;
+    ta.value = buildExportContent().plain;
+}
+
+function eTxt() {
+    const { plain, title } = buildExportContent();
+    dl(plain, (title || 'chat') + '-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.txt', 'text/plain');
+    toast('✅ TXT 已导出');
+}
+
+function eMd() {
+    const { md, title } = buildExportContent();
+    dl(md, (title || 'chat') + '-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.md', 'text/markdown');
+    toast('✅ Markdown 已导出');
+}
+
+function eHtml() {
+    const { html, title } = buildExportContent();
+    const full = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(title) + '</title><style>body{font-family:Microsoft YaHei,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;line-height:1.7;color:#222}pre{background:#f6f8fa;border-radius:8px;padding:12px;overflow-x:auto}table{border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 12px}img{max-width:100%}</style></head><body>' + html + '</body></html>';
+    dl(full, (title || 'chat') + '-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.html', 'text/html');
+    toast('✅ HTML 已导出');
+}
+
+async function eDocx() {
+    const sections = buildExportSections();
+    if (!sections.length) { toast('请至少勾选一条消息', 'er'); return; }
+    const c = curChat();
+    toast('正在生成 Word...');
+    try {
+        await Exporter.exportDocx(sections, c ? c.title : '对话记录');
+        toast('✅ Word 已导出');
+    } catch (e) {
+        toast('Word 导出失败：' + e.message, 'er');
+    }
+}
+
+async function ePdf() {
+    const { html, title } = buildExportContent();
+    if (html === '<p>（无内容）</p>') { toast('请至少勾选一条消息', 'er'); return; }
+    toast('正在生成 PDF...');
+    try {
+        await Exporter.exportPdf(html, title);
+        toast('✅ PDF 已导出');
+    } catch (e) {
+        toast('PDF 导出失败：' + e.message, 'er');
+    }
+}
+
+function cpExp() {
+    const ta = document.getElementById('expTA');
+    if (!ta || !ta.value) { toast('无内容', 'er'); return; }
+    ta.select();
+    try {
+        document.execCommand('copy');
+        toast('✅ 已复制');
+    } catch (e) {
+        navigator.clipboard.writeText(ta.value).then(() => toast('✅ 已复制'));
+    }
+}
 
 async function initApp(){
     if(typeof Auth!=='undefined'){const ok=await Auth.verify();if(!ok){Auth.showLoginPage();return;}}
