@@ -252,7 +252,7 @@ const Admin = (function () {
     async function renderMonitor(box) { box.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center">加载中...</div>'; try { const data = await apiCall('admin/monitor'); const logMap = {}; (data.logs || []).forEach(l => logMap[l.username] = l); const sessMap = {}; (data.sessions || []).forEach(s => sessMap[s.username] = s); const usernames = new Set([...Object.keys(logMap), ...Object.keys(sessMap)]); let html = `<div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap"><div style="padding:10px 16px;background:var(--pri-l);border-radius:8px"><div style="font-size:11px;color:var(--text2)">当前在线（5分钟内）</div><div style="font-size:22px;font-weight:600;color:#10b981">${data.onlineCount || 0} 人</div></div><button class="btn btn-s" onclick="Admin.switchTab('monitor')" style="align-self:center">🔄刷新</button></div><div style="overflow-x:auto"><table class="admin-table"><thead><tr><th>账号</th><th>对话次数</th><th>累计Token</th><th>不同IP</th><th>最后活跃</th></tr></thead><tbody>`; usernames.forEach(un => { const l = logMap[un] || {}; const s = sessMap[un] || {}; html += `<tr><td>${esc(un)}</td><td>${l.logCount || 0}</td><td>${(l.totalTokens || 0).toLocaleString()}</td><td>${(s.ipc || 0) >= 3 ? '<span style="color:#ef4444">🔴' + s.ipc + '</span>' : (s.ipc || 0)}</td><td style="font-size:11px">${fmtTime(s.last || 0)}</td></tr>`; }); html += '</tbody></table></div><h4 style="font-size:13px;margin:16px 0 8px">📋 最近100条</h4><div style="overflow-x:auto;max-height:280px;overflow-y:auto"><table class="admin-table"><thead><tr><th>时间</th><th>账号</th><th>对话</th><th>轮次</th><th>Token</th><th>模型</th></tr></thead><tbody>'; (data.recent || []).forEach(r => { html += `<tr><td style="font-size:11px">${new Date(r.created_at).toLocaleString()}</td><td>${esc(r.username)}</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${esc(r.chat_name || '-')}</td><td>${r.rounds || 0}</td><td>${r.tokens || 0}</td><td>${esc(r.model || '-')}</td></tr>`; }); html += '</tbody></table></div>'; box.innerHTML = html; } catch (e) { box.innerHTML = '<div style="color:#ef4444;padding:20px">加载失败：' + e.message + '</div>'; } }
 
     /* ========== 全局设置 ========== */
-       async function renderConfig(box) {
+    async function renderConfig(box) {
         box.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center">加载中...</div>';
         try {
             const data = await apiCall('admin/config/get');
@@ -267,9 +267,15 @@ const Admin = (function () {
                 </div>
 
                 <div class="fg">
-                    <label>🌐 Tavily 搜索 Key <span style="font-size:11px;color:var(--text2)">（联网搜索用，所有用户共用）</span></label>
+                    <label>🌐 Tavily 搜索 Key <span style="font-size:11px;color:var(--text2)">（联网搜索用）</span></label>
                     <input id="cfg_tavilyKey" type="text" value="${esc(cfg.tavilyKey || '')}" placeholder="tvly-...">
-                    <div style="font-size:11px;color:var(--text2);margin-top:4px">在 tavily.com 注册免费获取。留空则搜索功能不可用。</div>
+                    <div style="font-size:11px;color:var(--text2);margin-top:4px">在 tavily.com 注册免费获取。</div>
+                </div>
+
+                <div class="fg">
+                    <label>🔗 Jina Reader Key <span style="font-size:11px;color:var(--text2)">（网页/YouTube读取用）</span></label>
+                    <input id="cfg_jinaKey" type="text" value="${esc(cfg.jinaKey || '')}" placeholder="jina_...">
+                    <div style="font-size:11px;color:var(--text2);margin-top:4px">在 jina.ai 注册免费获取。留空则读取易被限流。</div>
                 </div>
 
                 <button class="btn btn-p" onclick="Admin.saveConfig()">💾 保存</button>
@@ -279,16 +285,19 @@ const Admin = (function () {
         }
     }
 
+
     function saveConfig() {
         const chunkSize = document.getElementById('cfg_chunkSize').value;
         const tavilyKey = document.getElementById('cfg_tavilyKey').value.trim();
-        apiCall('admin/config/save', 'POST', { config: { chunkSize, tavilyKey } })
+        const jinaKey = document.getElementById('cfg_jinaKey').value.trim();
+        apiCall('admin/config/save', 'POST', { config: { chunkSize, tavilyKey, jinaKey } })
             .then(() => {
                 toast('✅ 已保存');
                 if (typeof Chunker !== 'undefined') Chunker.setBlockSize(chunkSize);
             })
             .catch(e => toast('失败：' + e.message, 'er'));
     }
+
 
     return {
         open, close, switchTab, apiCall,
