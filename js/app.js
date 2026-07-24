@@ -411,17 +411,21 @@ async function coreSend(opts) {
         };
         onProgress('⏳ 正在联网获取资料...');
 
-        let netAugment = '';
+        let netResult = { augment: '', sources: [] };
         try {
-            netAugment = await doNetworkAugment(opts.netQuery || actualText, onProgress);
+            netResult = await doNetworkAugment(opts.netQuery || actualText, onProgress);
         } catch (e) {
             onProgress('❌ 联网出错：' + e.message);
         }
 
-        if (netAugment) {
-            actualText = '【以下是联网获取的参考资料，请依据它回答】' + netAugment + '\n\n【我的问题】\n' + (opts.netQuery || actualText);
+        if (netResult.augment) {
+            actualText = '【以下是联网获取的参考资料，请依据它回答】' + netResult.augment + '\n\n【我的问题】\n' + (opts.netQuery || actualText);
             userMsg._actual = actualText;
         }
+        if (netResult.sources && netResult.sources.length) {
+            aiMsg._sources = netResult.sources;
+        }
+
         // 清空进度，气泡回到空白，准备接收 AI 回复
         aiMsg.content = '';
         if (lastMsgEl) UI.streamRender(lastMsgEl, '');
@@ -591,23 +595,22 @@ async function coreSend(opts) {
 
 
 function reportLog(chat,profile,usage){try{const rounds=Math.floor((chat.messages||[]).filter(m=>m.role==='assistant').length);const tokens=usage?((usage.inputTokens||0)+(usage.outputTokens||0)):0;const token=Auth&&Auth.getToken?Auth.getToken():'';fetch('/api/log',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':token},body:JSON.stringify({chatName:chat.title||'',rounds,tokens,model:(profile&&profile.model)||''})}).catch(()=>{});}catch(e){}}
-/* ===== 联网前置处理（方案B：带进度回调）=====
-   onProgress(text) 会在每一步被调用，用于实时更新气泡 */
+/* ===== 联网前置处理（带进度回调 + 来源收集）=====
+   返回 { augment, sources:[{type,title,url,snippet}] } */
 async function doNetworkAugment(userText, onProgress) {
     const readOn = (document.getElementById('netReadChk') || {}).checked;
     const searchOn = (document.getElementById('netSearchChk') || {}).checked;
-    if (!readOn && !searchOn) return '';
+    if (!readOn && !searchOn) return { augment: '', sources: [] };
 
     const token = (typeof Auth !== 'undefined' && Auth.getToken()) ? Auth.getToken() : '';
     let augment = '';
+    const sources = [];
     const report = (t) => { if (onProgress) onProgress(t); };
 
-    // 取域名（进度显示用）
     const domainOf = (u) => {
         try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u.slice(0, 30); }
     };
 
-    // ---- 读取链接 ----
     if (readOn) {
         const urls = (userText.match(/https?:\/\/[^\s，。、）)】]+/g) || []).slice(0, 3);
         for (const u of urls) {
@@ -623,9 +626,11 @@ async function doNetworkAugment(userText, onProgress) {
                     const data = await resp.json();
                     if (data.hasCaption && data.text) {
                         augment += '\n\n=== 📹 视频字幕：' + u + ' ===\n' + data.text + '\n=== 字幕结束 ===\n';
+                        sources.push({ type: 'video', title: '视频字幕：' + dom, url: u, snippet: data.text.slice(0, 120) });
                     } else {
                         report('❌ 视频无字幕：' + dom);
                         augment += '\n\n=== 📹 视频：' + u + ' ===\n（' + (data.msg || '无字幕，无法提取') + '，此链接无有效内容）\n';
+                        sources.push({ type: 'video', title: '视频（无字幕）：' + dom, url: u, snippet: data.msg || '无字幕' });
                     }
                 } else if (isYtChannel) {
                     report('📺 正在读取YouTube频道：' + dom);
@@ -633,9 +638,11 @@ async function doNetworkAugment(userText, onProgress) {
                     const data = await resp.json();
                     if (data.ok && data.text) {
                         augment += '\n\n=== 📺 YouTube频道：' + u + ' ===\n' + data.text + '\n=== 频道内容结束 ===\n';
+                        sources.push({ type: 'channel', title: 'YouTube频道：' + dom, url: u, snippet: data.text.slice(0, 120) });
                     } else {
                         report('❌ 频道读取失败：' + dom);
                         augment += '\n\n=== 📺 频道读取失败：' + u + ' ===\n（' + (data.error || '未知') + '，请勿基于此链接编造内容）\n';
+                        sources.push({ type: 'channel', title: '频道读取失败：' + dom, url: u, snippet: data.error || '读取失败' });
                     }
                 } else {
                     report('🔗 正在读取网页：' + dom);
@@ -643,20 +650,22 @@ async function doNetworkAugment(userText, onProgress) {
                     const data = await resp.json();
                     if (data.ok && data.text) {
                         augment += '\n\n=== 🔗 网页内容：' + u + ' ===\n' + data.text + '\n=== 网页结束 ===\n';
+                        sources.push({ type: 'web', title: '网页：' + dom, url: u, snippet: data.text.slice(0, 120) });
                     } else {
                         report('❌ 网页读取失败：' + dom);
                         augment += '\n\n=== 🔗 网页读取失败：' + u + ' ===\n（' + (data.error || '未知') + '，请勿基于此链接编造内容）\n';
+                        sources.push({ type: 'web', title: '网页读取失败：' + dom, url: u, snippet: data.error || '读取失败' });
                     }
                 }
             } catch (e) {
                 report('❌ 读取异常：' + dom);
                 augment += '\n\n=== 🔗 ' + u + ' 读取异常：' + e.message + ' ===\n';
+                sources.push({ type: 'web', title: '读取异常：' + dom, url: u, snippet: e.message });
             }
         }
         if (!urls.length) report('（未在消息中识别到链接）');
     }
 
-    // ---- 联网搜索（剔除 query 里的网址）----
     if (searchOn) {
         const query = userText.replace(/https?:\/\/[^\s，。、）)】]+/g, '').trim();
         if (query) {
@@ -669,10 +678,12 @@ async function doNetworkAugment(userText, onProgress) {
                 });
                 const data = await resp.json();
                 if (data.ok) {
+                    report('✅ 找到 ' + (data.results || []).length + ' 条结果');
                     let s = '\n\n=== 🌐 联网搜索结果（关键词：' + data.query + '）===\n';
                     if (data.answer) s += '【摘要】' + data.answer + '\n\n';
                     (data.results || []).forEach((r, i) => {
                         s += (i + 1) + '. ' + r.title + '\n   ' + r.url + '\n   ' + r.content + '\n\n';
+                        sources.push({ type: 'search', title: r.title || '', url: r.url || '', snippet: (r.content || '').slice(0, 150) });
                     });
                     s += '=== 搜索结束 ===\n';
                     augment += s;
@@ -685,7 +696,7 @@ async function doNetworkAugment(userText, onProgress) {
         }
     }
 
-    return augment;
+    return { augment: augment, sources: sources };
 }
 
 
@@ -1008,7 +1019,13 @@ function buildExportContent(chatArg, modeArg) {
     }
 
     msgs.forEach(m => {
-        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        let text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        if (m.role === 'assistant' && m._sources && m._sources.length) {
+            text += '\n\n📚 参考来源：\n' + m._sources.map((s, i) =>
+                (i + 1) + '. ' + (s.title || '') + (s.url ? '（' + s.url + '）' : '')
+            ).join('\n');
+        }
+
         if (isPure) {
             if (m.role === 'assistant' && text) {
                 plain += text + '\n\n';
