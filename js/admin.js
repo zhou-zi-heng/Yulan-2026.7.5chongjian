@@ -87,28 +87,64 @@ const Admin = (function () {
                 const ue = byUser[u.username] || [];
                 html += `<div class="eng-user-block"><div class="eng-user-hdr"><b>${esc(u.name || u.username)}</b> <span style="color:var(--text2);font-size:11px">(${esc(u.username)})</span><button class="btn btn-p btn-s" style="margin-left:auto" onclick='Admin.showEngEdit(${JSON.stringify(u.username)},"")'>➕ 加引擎</button></div>`;
                 if (!ue.length) html += '<div style="font-size:11px;color:var(--text2);padding:4px 0">（无引擎）</div>';
-                ue.forEach(e => { html += `<div class="eng-item"><span>📦 ${esc(e.name)} ${e.useCache ? '<span style="color:#10b981">💰缓存</span>' : ''} <span style="color:var(--text2);font-size:11px">${esc(e.protocol)} / ${esc(e.model || '用户自选')}</span></span><div style="margin-left:auto;display:flex;gap:4px"><button class="btn btn-s" onclick='Admin.showEngEdit(${JSON.stringify(e.username)},${JSON.stringify(e.id)})'>✏️改</button><button class="btn btn-s btn-d" onclick='Admin.delEng(${JSON.stringify(e.id)})'>🗑️</button></div></div>`; });
+                ue.forEach(e => { html += `<div class="eng-item"><span>📦 ${esc(e.name)} ${e.engineType === 'image' ? '<span style="color:#f59e0b">🎨生图</span>' : ''} ${e.useCache ? '<span style="color:#10b981">💰缓存</span>' : ''} <span style="color:var(--text2);font-size:11px">${esc(e.protocol)} / ${esc(e.model || '用户自选')}</span></span>
+                <div style="margin-left:auto;display:flex;gap:4px"><button class="btn btn-s" onclick='Admin.showEngEdit(${JSON.stringify(e.username)},${JSON.stringify(e.id)})'>✏️改</button><button class="btn btn-s btn-d" onclick='Admin.delEng(${JSON.stringify(e.id)})'>🗑️</button></div></div>`; });
                 html += `</div>`;
             });
             box.innerHTML = html; box._engs = engs;
         } catch (e) { box.innerHTML = '<div style="color:#ef4444;padding:20px">加载失败：' + e.message + '</div>'; }
     }
     function showEngEdit(username, engId) {
-        const box = document.getElementById('adminBody'); const engs = (box && box._engs) || [];
+        const box = document.getElementById('adminBody');
+        const engs = (box && box._engs) || [];
         const e = engId ? engs.find(x => x.id === engId) : null;
+        const etype = e ? (e.engineType || 'chat') : 'chat';
         box.innerHTML = `<div style="max-width:520px"><h3 style="margin-bottom:12px">${e ? '✏️ 编辑' : '➕ 新增'}公有引擎 — ${esc(username)}</h3>
             <div class="fg"><label>引擎名称</label><input id="ee_name" value="${e ? esc(e.name) : ''}"></div>
+            <div class="fg"><label>🔧 引擎类型</label><select id="ee_etype"><option value="chat"${etype !== 'image' ? ' selected' : ''}>💬 对话</option><option value="image"${etype === 'image' ? ' selected' : ''}>🎨 生图</option></select></div>
             <div class="fg"><label>协议</label><select id="ee_proto"><option value="openai"${!e || e.protocol === 'openai' ? ' selected' : ''}>OpenAI/通用</option><option value="anthropic"${e && e.protocol === 'anthropic' ? ' selected' : ''}>Claude原生</option><option value="gemini"${e && e.protocol === 'gemini' ? ' selected' : ''}>Gemini原生</option></select></div>
             <div class="fg"><label>Base URL</label><input id="ee_base" value="${e ? esc(e.base) : 'https://api.openai-proxy.org/v1'}"></div>
             <div class="fg"><label>API Key ${e ? '<span style="color:var(--text2);font-size:11px">（留空=不改）</span>' : ''}</label><input id="ee_key" type="password" placeholder="${e ? '••••（留空不变）' : 'sk-...'}"></div>
-            <div class="fg"><label>默认模型 <span style="color:var(--text2);font-size:11px">（可留空，用户自选）</span></label><input id="ee_model" value="${e ? esc(e.model || '') : ''}" placeholder="留空让用户获取选择"></div>
-            <div class="fg" style="padding:10px;background:var(--pri-l);border-radius:8px"><label class="pt" style="margin:0"><input type="checkbox" id="ee_cache" ${e && e.useCache ? 'checked' : ''}> 💰 开启 Prompt 缓存（重复内容省钱，Claude等支持）</label><div style="font-size:11px;color:var(--text2);margin-top:4px">开启后，用户对话底部"💰命中"数字>0即生效省钱</div></div>
+            <div class="fg"><label>默认模型 <span style="color:var(--text2);font-size:11px">（可留空，用户自选）</span></label><input id="ee_model" value="${e ? esc(e.model || '') : ''}" placeholder="生图如 openai/gpt-image-2" oninput="Admin.autoDetectEngType()"></div>
+            <div class="fg" style="padding:10px;background:var(--pri-l);border-radius:8px"><label class="pt" style="margin:0"><input type="checkbox" id="ee_cache" ${e && e.useCache ? 'checked' : ''}> 💰 开启 Prompt 缓存（对话用，重复内容省钱）</label></div>
             <div class="fg"><label style="font-size:11px;color:var(--text2)">单价可留空 → 查"模型库"。也可指定：</label></div>
             <div class="fr"><div class="fg"><label>输入</label><input id="ee_pi" type="number" step="0.01" value="${e ? (e.priceIn || 0) : 0}"></div><div class="fg"><label>输出</label><input id="ee_po" type="number" step="0.01" value="${e ? (e.priceOut || 0) : 0}"></div></div>
             <div class="fr"><div class="fg"><label>缓存读</label><input id="ee_pcr" type="number" step="0.01" value="${e ? (e.priceCR || 0) : 0}"></div><div class="fg"><label>缓存写</label><input id="ee_pcw" type="number" step="0.01" value="${e ? (e.priceCW || 0) : 0}"></div></div>
             <div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-p" onclick='Admin.saveEng(${JSON.stringify(username)},${JSON.stringify(e ? e.id : "")})'>💾 保存</button><button class="btn" onclick="Admin.switchTab('engines')">取消</button></div></div>`;
     }
-    function saveEng(username, engId) { const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; }; const body = { username, id: engId || undefined, name: g('ee_name').trim(), protocol: g('ee_proto'), base: g('ee_base').trim(), key: g('ee_key').trim(), model: g('ee_model').trim(), useCache: document.getElementById('ee_cache').checked, priceIn: parseFloat(g('ee_pi')) || 0, priceOut: parseFloat(g('ee_po')) || 0, priceCR: parseFloat(g('ee_pcr')) || 0, priceCW: parseFloat(g('ee_pcw')) || 0 }; if (!body.name) { toast('引擎名必填', 'er'); return; } apiCall('admin/engines/save', 'POST', body).then(() => { toast('✅ 已保存'); switchTab('engines'); }).catch(e => toast('失败：' + e.message, 'er')); }
+
+    /* 输入模型名时智能推断引擎类型（含生图关键词则默认选生图） */
+    function autoDetectEngType() {
+        const modelEl = document.getElementById('ee_model');
+        const etEl = document.getElementById('ee_etype');
+        if (!modelEl || !etEl) return;
+        const m = (modelEl.value || '').toLowerCase();
+        if (/image|dall-?e|flux|stable-?diffusion|midjourney|imagen|seedream|kolors|画图|绘图/.test(m)) {
+            etEl.value = 'image';
+        }
+    }
+
+    function saveEng(username, engId) {
+        const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+        const body = {
+            username, id: engId || undefined,
+            name: g('ee_name').trim(),
+            engineType: g('ee_etype'),
+            protocol: g('ee_proto'),
+            base: g('ee_base').trim(),
+            key: g('ee_key').trim(),
+            model: g('ee_model').trim(),
+            useCache: document.getElementById('ee_cache').checked,
+            priceIn: parseFloat(g('ee_pi')) || 0,
+            priceOut: parseFloat(g('ee_po')) || 0,
+            priceCR: parseFloat(g('ee_pcr')) || 0,
+            priceCW: parseFloat(g('ee_pcw')) || 0
+        };
+        if (!body.name) { toast('引擎名必填', 'er'); return; }
+        apiCall('admin/engines/save', 'POST', body)
+            .then(() => { toast('✅ 已保存'); switchTab('engines'); })
+            .catch(e => toast('失败：' + e.message, 'er'));
+    }
     function delEng(id) { if (!confirm('删除这个引擎？')) return; apiCall('admin/engines/delete', 'POST', { id }).then(() => { toast('✅ 已删除'); switchTab('engines'); }).catch(e => toast('失败：' + e.message, 'er')); }
 
     /* ========== 模型库 ========== */
@@ -346,7 +382,7 @@ const Admin = (function () {
         open, close, switchTab, apiCall,
         showCreateUser, showResetPwd, toggleStatus, delUser, showPerm, searchUsers,
         importXLSX, exportXLSX, downloadTemplate,
-        showEngEdit, saveEng, delEng,
+        showEngEdit, saveEng, delEng, autoDetectEngType,
         showModelEdit, saveModel, delModel,
         addPreset, delPreset, selectPreset, filterPresetList, updP, updS, updSeg, updSegPrompt,
         toggleStep, addStep, delStep, moveStep, addSeg, delSeg,
