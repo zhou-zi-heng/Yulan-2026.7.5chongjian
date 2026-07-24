@@ -99,7 +99,7 @@ async function _getConfigVal(env, key) {
     }
 }
 
-/* 网页读取：走 Jina Reader（免费，无需key） */
+/* 网页读取：走 Jina Reader（带 key 放宽限流） */
 async function hWebRead(request, env) {
     const pl = await verifyUser(request, env);
     if (!pl) return jr({ error: '未登录' }, 401);
@@ -108,14 +108,20 @@ async function hWebRead(request, env) {
     const target = url.searchParams.get('url') || '';
     if (!target) return jr({ error: '缺 url' }, 400);
 
+    const jinaKey = await _getConfigVal(env, 'jinaKey');
+
     try {
         const jinaUrl = 'https://r.jina.ai/' + target;
-        const resp = await fetch(jinaUrl, {
-            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
-        });
-        if (!resp.ok) return jr({ error: '读取失败 HTTP ' + resp.status }, 502);
+        const headers = { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' };
+        if (jinaKey) headers['Authorization'] = 'Bearer ' + jinaKey;
+
+        const resp = await fetch(jinaUrl, { headers: headers });
+        if (!resp.ok) {
+            let hint = '读取失败 HTTP ' + resp.status;
+            if (resp.status === 429) hint += '（被限流，请在超管后台配置 Jina Key，或稍后再试）';
+            return jr({ error: hint }, 502);
+        }
         let text = await resp.text();
-        // 截断，避免超大网页撑爆 token（约 5 万字符上限）
         const MAX = 50000;
         let truncated = false;
         if (text.length > MAX) { text = text.slice(0, MAX); truncated = true; }
@@ -166,7 +172,7 @@ async function hWebSearch(request, env) {
     }
 }
 
-/* YouTube 频道：用 Jina 抓 /videos 页，返回清洗后的文本 */
+/* YouTube 频道：用 Jina 抓 /videos 页（带 key） */
 async function hYtChannel(request, env) {
     const pl = await verifyUser(request, env);
     if (!pl) return jr({ error: '未登录' }, 401);
@@ -175,16 +181,22 @@ async function hYtChannel(request, env) {
     let target = url.searchParams.get('url') || '';
     if (!target) return jr({ error: '缺 url' }, 400);
 
-    // 规范化到频道的 videos 列表页
     target = target.replace(/\/+$/, '');
     if (!/\/videos$/.test(target)) target = target + '/videos';
 
+    const jinaKey = await _getConfigVal(env, 'jinaKey');
+
     try {
         const jinaUrl = 'https://r.jina.ai/' + target;
-        const resp = await fetch(jinaUrl, {
-            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
-        });
-        if (!resp.ok) return jr({ error: '频道读取失败 HTTP ' + resp.status }, 502);
+        const headers = { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' };
+        if (jinaKey) headers['Authorization'] = 'Bearer ' + jinaKey;
+
+        const resp = await fetch(jinaUrl, { headers: headers });
+        if (!resp.ok) {
+            let hint = '频道读取失败 HTTP ' + resp.status;
+            if (resp.status === 429) hint += '（被限流，请配置 Jina Key）';
+            return jr({ error: hint }, 502);
+        }
         let text = await resp.text();
         const MAX = 40000;
         let truncated = false;
@@ -194,6 +206,7 @@ async function hYtChannel(request, env) {
         return jr({ error: '频道读取异常：' + e.message }, 502);
     }
 }
+
 
 /* YouTube 单视频字幕：尝试抓 timedtext（免费），无字幕则明确返回 */
 async function hYtTranscript(request, env) {
